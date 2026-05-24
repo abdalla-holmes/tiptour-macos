@@ -13,6 +13,7 @@ enum TipTourConnectionKind: String, Codable, Hashable {
     case actionDriver
     case orchestrator
     case perception
+    case parser
     case harness
     case voiceHarness
 }

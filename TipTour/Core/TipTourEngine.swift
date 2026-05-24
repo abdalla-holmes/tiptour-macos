@@ -29,6 +29,7 @@ struct TipTourEngineObservation: Encodable {
     let isAccurateGroundingEnabled: Bool
     let isCuaActionDriverEnabled: Bool
     let isHermesOrchestratorEnabled: Bool
+    let isOmniParserHarnessEnabled: Bool
     let detectionElementCount: Int
 }
 
@@ -117,6 +118,7 @@ final class TipTourEngine {
     private let isAccurateGroundingEnabledProvider: () -> Bool
     private let isCuaActionDriverEnabledProvider: () -> Bool
     private let isHermesOrchestratorEnabledProvider: () -> Bool
+    private let isOmniParserHarnessEnabledProvider: () -> Bool
     private let detectionElementCountProvider: () -> Int
     private let refreshLocalPerception: (String) async -> Void
     private let normalizeWorkflowSteps: ([WorkflowStep], String) -> [WorkflowStep]
@@ -131,6 +133,7 @@ final class TipTourEngine {
         isAccurateGroundingEnabledProvider: @escaping () -> Bool,
         isCuaActionDriverEnabledProvider: @escaping () -> Bool,
         isHermesOrchestratorEnabledProvider: @escaping () -> Bool,
+        isOmniParserHarnessEnabledProvider: @escaping () -> Bool,
         detectionElementCountProvider: @escaping () -> Int,
         refreshLocalPerception: @escaping (String) async -> Void,
         normalizeWorkflowSteps: @escaping ([WorkflowStep], String) -> [WorkflowStep],
@@ -141,6 +144,7 @@ final class TipTourEngine {
         self.isAccurateGroundingEnabledProvider = isAccurateGroundingEnabledProvider
         self.isCuaActionDriverEnabledProvider = isCuaActionDriverEnabledProvider
         self.isHermesOrchestratorEnabledProvider = isHermesOrchestratorEnabledProvider
+        self.isOmniParserHarnessEnabledProvider = isOmniParserHarnessEnabledProvider
         self.detectionElementCountProvider = detectionElementCountProvider
         self.refreshLocalPerception = refreshLocalPerception
         self.normalizeWorkflowSteps = normalizeWorkflowSteps
@@ -159,6 +163,7 @@ final class TipTourEngine {
             isAccurateGroundingEnabled: isAccurateGroundingEnabledProvider(),
             isCuaActionDriverEnabled: isCuaActionDriverEnabledProvider(),
             isHermesOrchestratorEnabled: isHermesOrchestratorEnabledProvider(),
+            isOmniParserHarnessEnabled: isOmniParserHarnessEnabledProvider(),
             detectionElementCount: detectionElementCountProvider()
         )
     }

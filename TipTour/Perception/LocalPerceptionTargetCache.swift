@@ -147,10 +147,12 @@ final class LocalPerceptionTargetCache: @unchecked Sendable {
         return currentSnapshot.candidates
             .filter { !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .sorted { first, second in
-                if first.source == second.source {
+                let firstPriority = sourcePriority(first.source)
+                let secondPriority = sourcePriority(second.source)
+                if firstPriority == secondPriority {
                     return first.confidence > second.confidence
                 }
-                return first.source == "ocr"
+                return firstPriority > secondPriority
             }
             .prefix(limit)
             .enumerated()
@@ -283,7 +285,7 @@ final class LocalPerceptionTargetCache: @unchecked Sendable {
                 return nil
             }
 
-            let sourceBonus = candidate.source == "ocr" ? 3.0 : 0.0
+            let sourceBonus = Double(sourcePriority(candidate.source))
             let confidenceBonus = min(candidate.confidence, 1.0) * 4.0
             let proximityPenalty: Double
             if let proximityAnchorInScreenshotPixels {
@@ -436,6 +438,12 @@ final class LocalPerceptionTargetCache: @unchecked Sendable {
 
     private static func array(from rect: CGRect) -> [Double] {
         [rect.minX, rect.minY, rect.maxX, rect.maxY]
+    }
+
+    private func sourcePriority(_ source: String) -> Int {
+        if source == "ocr" { return 4 }
+        if source.hasPrefix("omniparser") { return 3 }
+        return 1
     }
 }
 

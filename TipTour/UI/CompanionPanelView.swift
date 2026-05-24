@@ -3,8 +3,8 @@
 //  TipTour
 //
 //  SwiftUI content hosted inside the menu bar panel. The normal surface is
-//  intentionally pointer-first; provider keys and debug switches live behind
-//  the footer setup drawer.
+//  intentionally pointer-first; durable configuration lives in the separate
+//  Settings window.
 //  Dark aesthetic via DS.
 //
 
@@ -719,6 +719,18 @@ struct CompanionPanelView: View {
             )
 
             connectionToggleRow(
+                title: "OmniParser",
+                subtitle: companionManager.isOmniParserHarnessEnabled
+                    ? "parser sidecar enabled"
+                    : "native parser only",
+                systemImage: "square.stack.3d.down.right",
+                isOn: Binding(
+                    get: { companionManager.isOmniParserHarnessEnabled },
+                    set: { companionManager.setOmniParserHarnessEnabled($0) }
+                )
+            )
+
+            connectionToggleRow(
                 title: "Pipecat Voice",
                 subtitle: companionManager.isPipecatVoiceHarnessEnabled
                     ? "voice sidecar enabled"
@@ -838,8 +850,9 @@ struct CompanionPanelView: View {
             HStack(spacing: 0) {
                 feedbackButton
 
-                footerIconButton("Setup", systemImage: "slider.horizontal.3", toggled: showDevTools) {
-                    showDevTools.toggle()
+                footerIconButton("Settings", systemImage: "gearshape") {
+                    NotificationCenter.default.post(name: .tipTourOpenSettings, object: nil)
+                    NotificationCenter.default.post(name: .tipTourDismissPanel, object: nil)
                 }
 
                 Spacer()
@@ -849,10 +862,6 @@ struct CompanionPanelView: View {
                 }
             }
 
-            if showDevTools {
-                devToolsSection
-                    .padding(.top, 8)
-            }
         }
     }
 
@@ -872,113 +881,6 @@ struct CompanionPanelView: View {
         .buttonStyle(.plain)
         .pointerCursor()
         .help(title)
-    }
-
-    // MARK: - Dev Tools
-
-    /// Setup and debug rows. Keeping these out of the primary surface keeps
-    /// the menu bar focused on the pointer-agent loop.
-    @State private var showDevTools: Bool = false
-
-    private var devToolsSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            sectionHeader("SETUP")
-            ProviderSetupView(companionManager: companionManager)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 8)
-
-            sectionHeader("ADVANCED")
-            accurateGroundingToggleRow
-                .padding(.horizontal, 10)
-            screenshotStreamingToggleRow
-                .padding(.horizontal, 10)
-            connectionsSection
-                .padding(.horizontal, 10)
-            nekoModeToggleRow
-                .padding(.horizontal, 10)
-
-            #if DEBUG
-            Spacer().frame(height: 6)
-            sectionHeader("DEBUG")
-
-            devToolRow("Test Cursor Flight", systemImage: "arrow.up.right") {
-                let s = NSScreen.main!
-                companionManager.detectedElementScreenLocation = CGPoint(x: s.frame.midX, y: s.frame.midY)
-                companionManager.detectedElementDisplayFrame = s.frame
-                companionManager.detectedElementBubbleText = "Test"
-                NotificationCenter.default.post(name: .tipTourDismissPanel, object: nil)
-            }
-
-            devToolRow("Show Detection Overlay", systemImage: "viewfinder") {
-                companionManager.setDetectionOverlayEnabled(!companionManager.isDetectionOverlayEnabled)
-                NotificationCenter.default.post(name: .tipTourDismissPanel, object: nil)
-            } trailing: {
-                Text(companionManager.isDetectionOverlayEnabled ? "On" : "Off")
-                    .foregroundColor(companionManager.isDetectionOverlayEnabled ? DS.Colors.success : DS.Colors.textTertiary)
-            }
-
-            Spacer().frame(height: 6)
-            #endif
-
-        }
-        .padding(.vertical, 4)
-    }
-
-    /// Compact uppercase section label used inside the Dev panel.
-    private func sectionHeader(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 9, weight: .semibold, design: .rounded))
-            .tracking(0.4)
-            .foregroundColor(DS.Colors.textTertiary)
-            .padding(.horizontal, 10)
-            .padding(.top, 6)
-            .padding(.bottom, 3)
-    }
-
-    private func devToolRow(
-        _ title: String,
-        systemImage: String,
-        destructive: Bool = false,
-        action: @escaping () -> Void,
-        @ViewBuilder trailing: () -> some View = { EmptyView() }
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 11))
-                    .foregroundColor(destructive ? .red.opacity(0.7) : DS.Colors.textTertiary)
-                    .frame(width: 16)
-
-                Text(title)
-                    .font(.system(size: 12))
-                    .foregroundColor(destructive ? .red.opacity(0.7) : DS.Colors.textSecondary)
-
-                Spacer()
-
-                trailing()
-                    .font(.system(size: 11))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(DevToolRowButtonStyle())
-        .pointerCursor()
-    }
-
-    private struct DevToolRowButtonStyle: ButtonStyle {
-        @State private var isHovered = false
-
-        func makeBody(configuration: Configuration) -> some View {
-            configuration.label
-                .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(configuration.isPressed
-                              ? DS.Colors.surface4
-                              : isHovered ? DS.Colors.surface3 : Color.clear)
-                )
-                .onHover { isHovered = $0 }
-        }
     }
 
     // MARK: - Visuals

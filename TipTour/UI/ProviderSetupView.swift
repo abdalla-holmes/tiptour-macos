@@ -2,7 +2,7 @@
 //  ProviderSetupView.swift
 //  TipTour
 //
-//  Hidden setup drawer content for local provider keys.
+//  Settings content for local provider keys.
 //
 
 import SwiftUI
@@ -16,7 +16,7 @@ struct ProviderSetupView: View {
     @State private var devClaudeKeyStatus: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             providerHeader
             apiKeyRows
         }
@@ -30,13 +30,17 @@ struct ProviderSetupView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "waveform.badge.mic")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(DS.Colors.accent)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(DS.Colors.textTertiary)
 
                 Text("Provider keys")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundColor(DS.Colors.textSecondary)
             }
+
+            Text("Keys are stored in macOS Keychain and only used by your local build.")
+                .font(.system(size: 11))
+                .foregroundColor(DS.Colors.textTertiary)
         }
     }
 
@@ -72,7 +76,6 @@ struct ProviderSetupView: View {
                 hasSavedKey: hasSavedClaudeKey
             )
         }
-        .padding(.horizontal, -10)
     }
 
     private var hasSavedGeminiKey: Bool {
@@ -94,27 +97,32 @@ struct ProviderSetupView: View {
     ) -> some View {
         let trimmedInput = input.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let saveDisabled = trimmedInput.isEmpty
-        return HStack(spacing: 8) {
+        return HStack(spacing: 9) {
             Image(systemName: "key")
-                .font(.system(size: 10))
-                .foregroundColor(hasSavedKey ? DS.Colors.accent : DS.Colors.textTertiary)
-                .frame(width: 16)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(hasSavedKey ? DS.Colors.success : DS.Colors.textTertiary)
+                .frame(width: 18)
 
             Text(title)
-                .font(.system(size: 11))
+                .font(.system(size: 12, weight: .medium))
                 .foregroundColor(DS.Colors.textSecondary)
-                .frame(width: 70, alignment: .leading)
+                .frame(width: 58, alignment: .leading)
 
             SecureField(placeholder, text: input)
                 .textFieldStyle(.plain)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundColor(DS.Colors.textPrimary)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
                 .background(
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(Color.white.opacity(0.05))
                 )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(DS.Colors.borderSubtle.opacity(0.7), lineWidth: 0.6)
+                )
+                .frame(minWidth: 220, maxWidth: 360)
 
             Button {
                 save()
@@ -126,9 +134,9 @@ struct ProviderSetupView: View {
                 Image(systemName: "checkmark")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(saveDisabled ? DS.Colors.textTertiary : .white)
-                    .frame(width: 22, height: 20)
+                    .frame(width: 24, height: 24)
                     .background(
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(saveDisabled ? Color.white.opacity(0.06) : DS.Colors.accent)
                     )
             }
@@ -147,17 +155,22 @@ struct ProviderSetupView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundColor(DS.Colors.textTertiary)
-                    .frame(width: 22, height: 20)
+                    .frame(width: 24, height: 24)
                     .background(
-                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
                             .fill(Color.white.opacity(0.06))
                     )
             }
             .buttonStyle(.plain)
             .pointerCursor()
             .help("Clear")
+
+            Text(status.wrappedValue)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(DS.Colors.textTertiary)
+                .frame(width: 48, alignment: .leading)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

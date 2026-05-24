@@ -1,0 +1,478 @@
+import AVFoundation
+import SwiftUI
+
+struct TipTourSettingsView: View {
+    @ObservedObject var companionManager: CompanionManager
+    @State private var selectedSection: SettingsSection = .voice
+    private let sidebarWidth: CGFloat = 178
+    private let contentMaxWidth: CGFloat = 620
+
+    var body: some View {
+        HStack(spacing: 0) {
+            sidebar
+
+            Divider()
+                .background(DS.Colors.borderSubtle)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    selectedContent
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 28)
+                .padding(.bottom, 24)
+                .frame(maxWidth: contentMaxWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .scrollIndicators(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(minWidth: 700, minHeight: 500)
+        .background(DS.Colors.background)
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                TipTourPointerIcon(color: DS.Colors.textSecondary, size: 18)
+                    .frame(width: 18, height: 18)
+
+                Text("TipTour")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(DS.Colors.textPrimary)
+            }
+            .padding(.bottom, 16)
+
+            ForEach(SettingsSection.allCases) { section in
+                sidebarButton(section)
+            }
+
+            Spacer()
+
+            Text("Ctrl+K for text\nCtrl+Option for voice")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundColor(DS.Colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 8)
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 24)
+        .padding(.bottom, 18)
+        .frame(width: sidebarWidth)
+        .frame(maxHeight: .infinity)
+        .background(DS.Colors.surface1)
+    }
+
+    private func sidebarButton(_ section: SettingsSection) -> some View {
+        Button {
+            selectedSection = section
+        } label: {
+            HStack(spacing: 9) {
+                Image(systemName: section.systemImage)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(selectedSection == section ? DS.Colors.textPrimary : DS.Colors.textTertiary)
+                    .frame(width: 16)
+
+                Text(section.title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(selectedSection == section ? DS.Colors.textPrimary : DS.Colors.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(selectedSection == section ? Color.white.opacity(0.075) : Color.clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .pointerCursor()
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(selectedSection.title)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundColor(DS.Colors.textPrimary)
+                .lineLimit(1)
+
+            Text(selectedSection.subtitle)
+                .font(.system(size: 12))
+                .foregroundColor(DS.Colors.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @ViewBuilder
+    private var selectedContent: some View {
+        switch selectedSection {
+        case .voice:
+            voiceSection
+        case .connections:
+            connectionsSection
+        case .privacy:
+            privacySection
+        case .permissions:
+            permissionsSection
+        case .advanced:
+            advancedSection
+        }
+    }
+
+    private var voiceSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            ProviderSetupView(companionManager: companionManager)
+
+            settingsRow(
+                title: "Pipecat Voice",
+                subtitle: companionManager.isPipecatVoiceHarnessEnabled
+                    ? "Use the local realtime voice sidecar when it is available."
+                    : "Use native Gemini Live directly for now.",
+                systemImage: "waveform",
+                isOn: Binding(
+                    get: { companionManager.isPipecatVoiceHarnessEnabled },
+                    set: { companionManager.setPipecatVoiceHarnessEnabled($0) }
+                )
+            )
+
+            note("Gemini is the built-in realtime voice path. Pipecat is kept as a local sidecar so it can own voice orchestration while TipTour keeps macOS grounding and actions.")
+        }
+    }
+
+    private var connectionsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            settingsRow(
+                title: "CUA Driver",
+                subtitle: companionManager.isCuaActionDriverEnabled
+                    ? "Desktop clicking, typing, launching, and shortcuts are enabled."
+                    : "TipTour can observe and plan, but desktop actions are blocked.",
+                systemImage: "cursorarrow.motionlines",
+                isOn: Binding(
+                    get: { companionManager.isCuaActionDriverEnabled },
+                    set: { companionManager.setCuaActionDriverEnabled($0) }
+                )
+            )
+
+            settingsRow(
+                title: "Hermes Auto",
+                subtitle: companionManager.isHermesOrchestratorEnabled
+                    ? "Long Ctrl+K tasks can route to Hermes at 127.0.0.1:8642."
+                    : "Ctrl+K stays local or uses Claude one-step planning.",
+                systemImage: "link",
+                isOn: Binding(
+                    get: { companionManager.isHermesOrchestratorEnabled },
+                    set: { companionManager.setHermesOrchestratorEnabled($0) }
+                )
+            )
+
+            settingsRow(
+                title: "OmniParser",
+                subtitle: companionManager.isOmniParserHarnessEnabled
+                    ? "Parsed UI elements can enrich local grounding targets."
+                    : "Use TipTour's built-in AX, DOM, YOLO, and OCR grounding.",
+                systemImage: "rectangle.3.group",
+                isOn: Binding(
+                    get: { companionManager.isOmniParserHarnessEnabled },
+                    set: { companionManager.setOmniParserHarnessEnabled($0) }
+                )
+            )
+
+            settingsRow(
+                title: "Pipecat Voice",
+                subtitle: "Local sidecar health is checked when you enable it.",
+                systemImage: "dot.radiowaves.left.and.right",
+                isOn: Binding(
+                    get: { companionManager.isPipecatVoiceHarnessEnabled },
+                    set: { companionManager.setPipecatVoiceHarnessEnabled($0) }
+                )
+            )
+        }
+    }
+
+    private var privacySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            settingsRow(
+                title: "Remote Screenshots",
+                subtitle: companionManager.isScreenshotStreamingEnabled
+                    ? "Gemini can receive screen context when you ask for help."
+                    : "Remote visual context is off; local grounding can still run.",
+                systemImage: companionManager.isScreenshotStreamingEnabled ? "eye" : "eye.slash",
+                isOn: Binding(
+                    get: { companionManager.isScreenshotStreamingEnabled },
+                    set: { companionManager.setScreenshotStreamingEnabled($0) }
+                )
+            )
+
+            settingsRow(
+                title: "Accurate Grounding",
+                subtitle: companionManager.isAccurateGroundingEnabled
+                    ? "Local YOLO/OCR targets improve grounding before LLM coordinates."
+                    : "Use AX/DOM and standard local resolvers.",
+                systemImage: "scope",
+                isOn: Binding(
+                    get: { companionManager.isAccurateGroundingEnabled },
+                    set: { companionManager.setAccurateGroundingEnabled($0) }
+                )
+            )
+
+            note("Screenshots only controls remote visual context. TipTour still uses local screen understanding for grounding and safety when enabled.")
+        }
+    }
+
+    private var permissionsSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            permissionRow(
+                title: "Microphone",
+                subtitle: "Required for voice input.",
+                systemImage: "mic",
+                isGranted: companionManager.hasMicrophonePermission
+            ) {
+                let status = AVCaptureDevice.authorizationStatus(for: .audio)
+                if status == .notDetermined {
+                    AVCaptureDevice.requestAccess(for: .audio) { _ in }
+                } else if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+
+            permissionRow(
+                title: "Accessibility",
+                subtitle: "Required to read app UI and drive desktop actions.",
+                systemImage: "hand.raised",
+                isGranted: companionManager.hasAccessibilityPermission
+            ) {
+                WindowPositionManager.requestAccessibilityPermission()
+            }
+
+            permissionRow(
+                title: "Screen Recording",
+                subtitle: "Required to capture screen context.",
+                systemImage: "rectangle.dashed.badge.record",
+                isGranted: companionManager.hasScreenRecordingPermission
+            ) {
+                WindowPositionManager.requestScreenRecordingPermission()
+            }
+
+            if companionManager.hasScreenRecordingPermission {
+                permissionRow(
+                    title: "Screen Content",
+                    subtitle: "Lets TipTour read the screen without choosing a window each time.",
+                    systemImage: "eye",
+                    isGranted: companionManager.hasScreenContentPermission
+                ) {
+                    companionManager.requestScreenContentPermission()
+                }
+            }
+        }
+    }
+
+    private var advancedSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            settingsRow(
+                title: "Neko Mode",
+                subtitle: "Use the pixel-art cursor instead of the standard pointer.",
+                systemImage: "cat.fill",
+                isOn: Binding(
+                    get: { companionManager.isNekoModeEnabled },
+                    set: { companionManager.setNekoModeEnabled($0) }
+                )
+            )
+
+            #if DEBUG
+            settingsRow(
+                title: "Detection Overlay",
+                subtitle: "Show local CoreML and OCR boxes for debugging.",
+                systemImage: "viewfinder",
+                isOn: Binding(
+                    get: { companionManager.isDetectionOverlayEnabled },
+                    set: { companionManager.setDetectionOverlayEnabled($0) }
+                )
+            )
+
+            Button {
+                let screen = NSScreen.main
+                companionManager.detectedElementScreenLocation = screen.map {
+                    CGPoint(x: $0.frame.midX, y: $0.frame.midY)
+                }
+                companionManager.detectedElementDisplayFrame = screen?.frame
+                companionManager.detectedElementBubbleText = "Test"
+            } label: {
+                settingsActionLabel(
+                    title: "Test Cursor Flight",
+                    subtitle: "Send the overlay pointer to the center of the main screen.",
+                    systemImage: "arrow.up.right"
+                )
+            }
+            .buttonStyle(.plain)
+            .pointerCursor()
+            #endif
+        }
+    }
+
+    private func settingsRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        isOn: Binding<Bool>
+    ) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            rowIcon(systemImage)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer(minLength: 12)
+
+            Toggle("", isOn: isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
+                .tint(DS.Colors.accent)
+                .scaleEffect(0.82)
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func permissionRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        isGranted: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            rowIcon(systemImage)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer(minLength: 12)
+
+            if isGranted {
+                HStack(spacing: 5) {
+                    Circle()
+                        .fill(DS.Colors.success)
+                        .frame(width: 6, height: 6)
+                    Text("Granted")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(DS.Colors.success)
+                }
+            } else {
+                Button("Grant", action: action)
+                    .font(.system(size: 11, weight: .semibold))
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(DS.Colors.accent)
+            }
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func settingsActionLabel(
+        title: String,
+        subtitle: String,
+        systemImage: String
+    ) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            rowIcon(systemImage)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(DS.Colors.textSecondary)
+                Text(subtitle)
+                    .font(.system(size: 11))
+                    .foregroundColor(DS.Colors.textTertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Spacer()
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+    }
+
+    private func rowIcon(_ systemImage: String) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 13, weight: .medium))
+            .foregroundColor(DS.Colors.textTertiary)
+            .frame(width: 22)
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11))
+            .foregroundColor(DS.Colors.textTertiary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private enum SettingsSection: String, CaseIterable, Identifiable {
+    case voice
+    case connections
+    case privacy
+    case permissions
+    case advanced
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .voice: return "Voice"
+        case .connections: return "Connections"
+        case .privacy: return "Privacy"
+        case .permissions: return "Permissions"
+        case .advanced: return "Advanced"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .voice:
+            return "Provider keys and the optional Pipecat voice sidecar."
+        case .connections:
+            return "Local harnesses and desktop action integrations."
+        case .privacy:
+            return "Control what can leave the Mac and how local grounding runs."
+        case .permissions:
+            return "macOS access TipTour needs to hear, see, and act."
+        case .advanced:
+            return "Experimental visuals and development controls."
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .voice: return "waveform.badge.mic"
+        case .connections: return "point.3.connected.trianglepath.dotted"
+        case .privacy: return "lock.shield"
+        case .permissions: return "checkmark.shield"
+        case .advanced: return "slider.horizontal.3"
+        }
+    }
+}

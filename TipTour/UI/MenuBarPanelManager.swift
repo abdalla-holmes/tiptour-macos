@@ -10,6 +10,7 @@ import AppKit
 
 extension Notification.Name {
     static let tipTourDismissPanel = Notification.Name("tipTourDismissPanel")
+    static let tipTourOpenSettings = Notification.Name("tipTourOpenSettings")
     static let tipTourPanelPinStateChanged = Notification.Name("tipTourPanelPinStateChanged")
     static let tipTourUserInterfaceActionExecuted = Notification.Name("tipTourUserInterfaceActionExecuted")
 }
@@ -18,7 +19,9 @@ extension Notification.Name {
 final class MenuBarPanelManager: NSObject {
     private var statusItem: NSStatusItem?
     private var panel: FloatingCompanionPanel<CompanionPanelView>?
+    private var settingsWindowManager: TipTourSettingsWindowManager?
     private var dismissPanelObserver: NSObjectProtocol?
+    private var openSettingsObserver: NSObjectProtocol?
     private var pinStateChangedObserver: NSObjectProtocol?
 
     private let companionManager: CompanionManager
@@ -28,12 +31,16 @@ final class MenuBarPanelManager: NSObject {
     init(companionManager: CompanionManager) {
         self.companionManager = companionManager
         super.init()
+        settingsWindowManager = TipTourSettingsWindowManager(companionManager: companionManager)
         createStatusItem()
         installPanelObservers()
     }
 
     deinit {
         if let observer = dismissPanelObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = openSettingsObserver {
             NotificationCenter.default.removeObserver(observer)
         }
         if let observer = pinStateChangedObserver {
@@ -161,6 +168,16 @@ final class MenuBarPanelManager: NSObject {
         ) { [weak self] _ in
             Task { @MainActor in
                 self?.hidePanel()
+            }
+        }
+
+        openSettingsObserver = NotificationCenter.default.addObserver(
+            forName: .tipTourOpenSettings,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.settingsWindowManager?.show()
             }
         }
 

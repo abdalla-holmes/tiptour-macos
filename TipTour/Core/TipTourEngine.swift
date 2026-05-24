@@ -121,6 +121,7 @@ final class TipTourEngine {
     private let refreshLocalPerception: (String) async -> Void
     private let normalizeWorkflowSteps: ([WorkflowStep], String) -> [WorkflowStep]
     private let startWorkflowPlan: (WorkflowPlan) -> Void
+    private let activityReporter: @MainActor (String) -> Void
     private var recentActionAttempts: [TipTourEngineActionAttempt] = []
     private let maximumRecentActionAttempts = 24
     private let workflowSettlementTimeoutSeconds: TimeInterval = 7.0
@@ -134,7 +135,8 @@ final class TipTourEngine {
         detectionElementCountProvider: @escaping () -> Int,
         refreshLocalPerception: @escaping (String) async -> Void,
         normalizeWorkflowSteps: @escaping ([WorkflowStep], String) -> [WorkflowStep],
-        startWorkflowPlan: @escaping (WorkflowPlan) -> Void
+        startWorkflowPlan: @escaping (WorkflowPlan) -> Void,
+        activityReporter: @escaping @MainActor (String) -> Void = { _ in }
     ) {
         self.isAutopilotEnabledProvider = isAutopilotEnabledProvider
         self.isScreenshotStreamingEnabledProvider = isScreenshotStreamingEnabledProvider
@@ -145,6 +147,7 @@ final class TipTourEngine {
         self.refreshLocalPerception = refreshLocalPerception
         self.normalizeWorkflowSteps = normalizeWorkflowSteps
         self.startWorkflowPlan = startWorkflowPlan
+        self.activityReporter = activityReporter
     }
 
     func observe() -> TipTourEngineObservation {
@@ -233,11 +236,13 @@ final class TipTourEngine {
     }
 
     func runPointerAction(_ pointerActionRequest: PointerActionRequest) async -> TipTourEnginePlanNextActionResult {
+        activityReporter("Hermes locating \(pointerActionRequest.targetLabel ?? pointerActionRequest.goal)")
         await activateRequestedApplicationForPerceptionIfNeeded(pointerActionRequest.app)
         await refreshLocalPerception("harness plan-next-action")
 
         let targets = LocalPerceptionTargetCache.shared.currentTargets()
         guard !targets.isEmpty else {
+            activityReporter("Hermes found no local targets")
             return TipTourEnginePlanNextActionResult(
                 ok: false,
                 reason: "no_local_targets",
@@ -275,6 +280,7 @@ final class TipTourEngine {
             let message = pointerActionRequest.allowScreenshotPlanning
                 ? "No local target matched. Screenshot planning can be added here, but this endpoint currently refuses to guess raw coordinates."
                 : "No local target matched the requested label or goal."
+            activityReporter("Hermes could not find \(pointerActionRequest.targetLabel ?? pointerActionRequest.goal)")
             return TipTourEnginePlanNextActionResult(
                 ok: false,
                 reason: reason,
@@ -296,6 +302,7 @@ final class TipTourEngine {
         )
 
         guard pointerActionRequest.execute else {
+            activityReporter("Hermes planned \(plannedStep.hint)")
             return TipTourEnginePlanNextActionResult(
                 ok: true,
                 reason: nil,
@@ -403,7 +410,9 @@ final class TipTourEngine {
             print("[Engine] single-action mode: ignoring \(ignoredSteps) extra step(s)")
         }
 
-        print("[Engine] accepted workflow plan \"\(singleActionPlan.goal)\" -> \(firstStep.label ?? firstStep.value ?? "<unlabeled>")")
+        let actionLabel = firstStep.label ?? firstStep.value ?? "<unlabeled>"
+        print("[Engine] accepted workflow plan \"\(singleActionPlan.goal)\" -> \(actionLabel)")
+        activityReporter("Hermes action - \(singleActionPlan.goal) -> \(actionLabel)")
         startWorkflowPlan(singleActionPlan)
 
         return TipTourEngineSubmissionResult(

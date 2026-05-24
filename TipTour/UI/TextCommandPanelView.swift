@@ -81,7 +81,7 @@ private struct TextCommandActivityTicker: View {
                     .id(text)
                     .font(.system(size: 11, weight: .regular))
                     .foregroundColor(DS.Colors.textSecondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .truncationMode(.tail)
                     .transition(
                         .asymmetric(

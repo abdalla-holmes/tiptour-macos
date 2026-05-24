@@ -45,7 +45,12 @@ final class CompanionAppDelegate: NSObject, NSApplicationDelegate {
 
         menuBarPanelManager = MenuBarPanelManager(companionManager: companionManager)
         companionManager.start()
-        let harnessServer = TipTourHarnessServer(tipTourEngine: companionManager.tipTourEngine)
+        let harnessServer = TipTourHarnessServer(
+            tipTourEngine: companionManager.tipTourEngine,
+            activityReporter: { [weak self] activityText in
+                self?.companionManager.reportHermesHarnessActivity(activityText)
+            }
+        )
         harnessServer.start()
         self.harnessServer = harnessServer
         // Auto-open the panel if the user still needs to do something:

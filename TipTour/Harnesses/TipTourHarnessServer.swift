@@ -15,11 +15,17 @@ import Network
 final class TipTourHarnessServer {
     private let tipTourEngine: TipTourEngine
     private let port: NWEndpoint.Port
+    private let activityReporter: @MainActor (String) -> Void
     private var listener: NWListener?
 
-    init(tipTourEngine: TipTourEngine, port: UInt16 = 19474) {
+    init(
+        tipTourEngine: TipTourEngine,
+        port: UInt16 = 19474,
+        activityReporter: @escaping @MainActor (String) -> Void = { _ in }
+    ) {
         self.tipTourEngine = tipTourEngine
         self.port = NWEndpoint.Port(rawValue: port) ?? 19474
+        self.activityReporter = activityReporter
     }
 
     func start() {
@@ -126,6 +132,7 @@ final class TipTourHarnessServer {
         case ("GET", "/health"), ("GET", "/v1/health"):
             response = jsonResponse(["ok": true, "service": "tiptour-harness"])
         case ("GET", "/v1/capabilities"):
+            activityReporter("Hermes checking TipTour capabilities")
             response = jsonResponse([
                 "ok": true,
                 "tools": [
@@ -141,16 +148,22 @@ final class TipTourHarnessServer {
                 "transport": "localhost-http"
             ])
         case ("GET", "/v1/observe"):
+            activityReporter("Hermes observing the desktop")
             response = encodableResponse(tipTourEngine.observe())
         case ("GET", "/v1/skills"):
+            activityReporter("Hermes reading app skills")
             response = encodableResponse(tipTourEngine.skills())
         case ("GET", "/v1/skills/active"), ("GET", "/v1/active-skill"), ("GET", "/v1/active_skill"):
+            activityReporter("Hermes reading the active app skill")
             response = encodableResponse(tipTourEngine.activeSkill())
         case ("GET", "/v1/targets"), ("GET", "/v1/grounding-targets"):
+            activityReporter("Hermes checking screen targets")
             response = await handleTargetsRequest()
         case ("GET", "/v1/action-history"), ("GET", "/v1/action_history"):
+            activityReporter("Hermes checking recent actions")
             response = encodableResponse(tipTourEngine.actionHistory())
         case ("POST", "/v1/plan-next-action"), ("POST", "/v1/plan_next_action"):
+            activityReporter("Hermes planning the next action")
             response = await handlePlanNextActionRequest(body: request.body)
         case ("POST", "/v1/workflow-plan"), ("POST", "/v1/submit_workflow_plan"):
             response = handleWorkflowPlanRequest(body: request.body)

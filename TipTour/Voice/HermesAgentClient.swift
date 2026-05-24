@@ -25,34 +25,12 @@ struct HermesAgentClient {
         let content: String
     }
 
-    private struct StreamChunk: Decodable {
-        let choices: [Choice]?
-        let error: StreamError?
-    }
-
-    private struct Choice: Decodable {
-        let delta: Delta?
-    }
-
-    private struct Delta: Decodable {
-        let content: String?
-    }
-
-    private struct StreamError: Decodable {
-        let message: String?
-    }
-
-    private struct ToolProgressPayload: Decodable {
-        let label: String?
-        let tool: String?
-        let emoji: String?
-    }
-
     func streamPrompt(
         _ prompt: String,
         resumeSessionID: String?,
         onChunk: @escaping (String) async -> Void,
-        onToolProgress: @escaping (String) async -> Void
+        onToolProgress: @escaping (String) async -> Void,
+        onStatus: @escaping (String) async -> Void = { _ in }
     ) async throws -> HermesAgentStreamResult {
         var request = URLRequest(url: URL(string: "http://127.0.0.1:8642/v1/chat/completions")!)
         request.httpMethod = "POST"
@@ -71,6 +49,7 @@ struct HermesAgentClient {
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         try validateHTTPResponse(response)
+        await onStatus("Hermes connected - waiting for output")
 
         let sessionID = (response as? HTTPURLResponse)?
             .value(forHTTPHeaderField: "x-hermes-session-id")
@@ -86,38 +65,28 @@ struct HermesAgentClient {
             currentDataLines.removeAll()
 
             guard !data.isEmpty else { return false }
-            if eventType == "hermes.tool.progress" {
-                if let progress = decodeToolProgress(from: data) {
-                    await onToolProgress(progress)
-                }
-                return false
-            }
             if data == "[DONE]" { return true }
 
-            do {
-                let decoded = try JSONDecoder().decode(StreamChunk.self, from: Data(data.utf8))
-                if let errorMessage = decoded.error?.message, !errorMessage.isEmpty {
-                    throw NSError(
-                        domain: "HermesAgentClient",
-                        code: -2,
-                        userInfo: [NSLocalizedDescriptionKey: errorMessage]
-                    )
-                }
+            guard let object = decodeJSONObject(from: data) else {
+                return false
+            }
 
-                for choice in decoded.choices ?? [] {
-                    if let chunk = choice.delta?.content, !chunk.isEmpty {
-                        accumulatedResponseText += chunk
-                        await onChunk(accumulatedResponseText)
-                    }
-                }
-            } catch {
-                if data.contains("tool") || data.contains("label") {
-                    if let progress = decodeToolProgress(from: data) {
-                        await onToolProgress(progress)
-                    }
-                    return false
-                }
-                throw error
+            if let errorMessage = streamErrorMessage(from: object) {
+                throw NSError(
+                    domain: "HermesAgentClient",
+                    code: -2,
+                    userInfo: [NSLocalizedDescriptionKey: errorMessage]
+                )
+            }
+
+            let chunks = assistantContentChunks(from: object, eventType: eventType)
+            for chunk in chunks where !chunk.isEmpty {
+                accumulatedResponseText += chunk
+                await onChunk(accumulatedResponseText)
+            }
+
+            if let progress = progressDisplayText(from: object, eventType: eventType) {
+                await onToolProgress(progress)
             }
             return false
         }
@@ -130,8 +99,12 @@ struct HermesAgentClient {
 
             if line.hasPrefix("event: ") {
                 currentEventType = String(line.dropFirst("event: ".count))
+            } else if line.hasPrefix("event:") {
+                currentEventType = String(line.dropFirst("event:".count)).trimmingCharacters(in: .whitespaces)
             } else if line.hasPrefix("data: ") {
                 currentDataLines.append(String(line.dropFirst("data: ".count)))
+            } else if line.hasPrefix("data:") {
+                currentDataLines.append(String(line.dropFirst("data:".count)).trimmingCharacters(in: .whitespaces))
             }
         }
 
@@ -188,15 +161,109 @@ struct HermesAgentClient {
         }
     }
 
-    private func decodeToolProgress(from data: String) -> String? {
-        guard let decoded = try? JSONDecoder().decode(ToolProgressPayload.self, from: Data(data.utf8)) else {
+    private func decodeJSONObject(from data: String) -> [String: Any]? {
+        guard
+            let jsonObject = try? JSONSerialization.jsonObject(with: Data(data.utf8)),
+            let object = jsonObject as? [String: Any]
+        else {
             return nil
         }
-        let label = decoded.label ?? decoded.tool ?? ""
-        guard !label.isEmpty else { return nil }
-        if let emoji = decoded.emoji, !emoji.isEmpty {
-            return "\(emoji) \(label)"
+        return object
+    }
+
+    private func streamErrorMessage(from object: [String: Any]) -> String? {
+        if let error = object["error"] as? [String: Any],
+           let message = error["message"] as? String,
+           !message.isEmpty {
+            return message
         }
-        return label
+        if let error = object["error"] as? String, !error.isEmpty {
+            return error
+        }
+        return nil
+    }
+
+    private func assistantContentChunks(from object: [String: Any], eventType: String) -> [String] {
+        var chunks: [String] = []
+
+        if let choices = object["choices"] as? [[String: Any]] {
+            for choice in choices {
+                if let delta = choice["delta"] as? [String: Any],
+                   let content = delta["content"] as? String,
+                   !content.isEmpty {
+                    chunks.append(content)
+                }
+                if let message = choice["message"] as? [String: Any],
+                   let content = message["content"] as? String,
+                   !content.isEmpty {
+                    chunks.append(content)
+                }
+                if let text = choice["text"] as? String, !text.isEmpty {
+                    chunks.append(text)
+                }
+            }
+        }
+
+        if eventType == "response.output_text.delta",
+           let delta = object["delta"] as? String,
+           !delta.isEmpty {
+            chunks.append(delta)
+        }
+
+        for key in ["content", "text", "response"] {
+            if let value = object[key] as? String, !value.isEmpty {
+                chunks.append(value)
+            }
+        }
+
+        return chunks
+    }
+
+    private func progressDisplayText(from object: [String: Any], eventType: String) -> String? {
+        let lowercasedEventType = eventType.lowercased()
+        let looksLikeProgressEvent = lowercasedEventType.contains("progress")
+            || lowercasedEventType.contains("tool")
+            || lowercasedEventType.contains("status")
+            || object["tool"] != nil
+            || object["toolCallId"] != nil
+            || object["status"] != nil
+            || object["label"] != nil
+        guard looksLikeProgressEvent else { return nil }
+
+        let label = firstString(in: object, keys: ["label", "message", "preview", "text", "content"])
+        let tool = firstString(in: object, keys: ["tool", "name", "function", "type"])
+        let status = firstString(in: object, keys: ["status", "state"])
+        let emoji = firstString(in: object, keys: ["emoji"])
+        let baseText = label ?? tool ?? status ?? eventType
+        guard !baseText.isEmpty else { return nil }
+
+        var displayText: String
+        switch status?.lowercased() {
+        case "completed", "complete", "done", "success", "succeeded":
+            displayText = "Finished \(label ?? tool ?? "tool")"
+        case "failed", "error":
+            displayText = "Failed \(label ?? tool ?? "tool")"
+        case "running", "started", "in_progress":
+            displayText = baseText
+        default:
+            displayText = baseText
+        }
+
+        if let emoji, !emoji.isEmpty, !displayText.hasPrefix(emoji) {
+            displayText = "\(emoji) \(displayText)"
+        }
+        return displayText
+    }
+
+    private func firstString(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = object[key] as? String {
+                let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmedValue.isEmpty {
+                    return trimmedValue
+                }
+            }
+        }
+        return nil
     }
 }

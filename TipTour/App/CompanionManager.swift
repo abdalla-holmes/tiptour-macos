@@ -99,6 +99,7 @@ final class CompanionManager: ObservableObject {
     private let hermesAgentClient = HermesAgentClient()
     private let pipecatVoiceHarnessClient = PipecatVoiceHarnessClient()
     private var hermesSessionID: String?
+    private var isTextCommandHermesWorkflowActive = false
     private lazy var textCommandPanelManager = TextCommandPanelManager(companionManager: self)
     private var detectionOverlayTask: Task<Void, Never>?
     private var postActionDetectionRefreshTask: Task<Void, Never>?
@@ -146,11 +147,20 @@ final class CompanionManager: ObservableObject {
         },
         startWorkflowPlan: { [weak self] plan in
             self?.startWorkflowPlan(plan)
+        },
+        activityReporter: { [weak self] activityText in
+            self?.reportHermesHarnessActivity(activityText)
         }
     )
 
     var tipTourEngine: TipTourEngine {
         engineFacade
+    }
+
+    func reportHermesHarnessActivity(_ activityText: String) {
+        guard isTextCommandHermesWorkflowActive else { return }
+        textCommandActivityText = activityText
+        lastTranscript = activityText
     }
 
     /// True when all four required permissions (accessibility, screen recording,
@@ -2624,8 +2634,15 @@ final class CompanionManager: ObservableObject {
         prompt: String,
         sourceLabel: String
     ) async throws -> TipTourEngineSubmissionResult {
-        if sourceLabel == "TextCommand" {
+        let shouldReportTextCommandActivity = sourceLabel == "TextCommand"
+        if shouldReportTextCommandActivity {
+            isTextCommandHermesWorkflowActive = true
             textCommandActivityText = "Connecting to Hermes"
+        }
+        defer {
+            if shouldReportTextCommandActivity {
+                isTextCommandHermesWorkflowActive = false
+            }
         }
 
         let hermesPrompt = hermesPromptWithTipTourContext(prompt, sourceLabel: sourceLabel)
@@ -2637,7 +2654,7 @@ final class CompanionManager: ObservableObject {
                     guard let self else { return }
                     self.lastTranscript = accumulatedText
                     if sourceLabel == "TextCommand" {
-                        self.textCommandActivityText = "Hermes thinking - \(self.compactStatusText(accumulatedText, showingTail: true))"
+                        self.textCommandActivityText = "Hermes says - \(self.compactStatusText(accumulatedText, showingTail: true))"
                     }
                 }
             },
@@ -2646,6 +2663,14 @@ final class CompanionManager: ObservableObject {
                     guard let self else { return }
                     let statusText = "Hermes action - \(progressText)"
                     self.lastTranscript = statusText
+                    if sourceLabel == "TextCommand" {
+                        self.textCommandActivityText = statusText
+                    }
+                }
+            },
+            onStatus: { [weak self] statusText in
+                await MainActor.run {
+                    guard let self else { return }
                     if sourceLabel == "TextCommand" {
                         self.textCommandActivityText = statusText
                     }

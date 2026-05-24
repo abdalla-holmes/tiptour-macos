@@ -717,6 +717,18 @@ struct CompanionPanelView: View {
                     set: { companionManager.setHermesOrchestratorEnabled($0) }
                 )
             )
+
+            connectionToggleRow(
+                title: "Pipecat Voice",
+                subtitle: companionManager.isPipecatVoiceHarnessEnabled
+                    ? "voice sidecar enabled"
+                    : "Gemini direct voice",
+                systemImage: "waveform",
+                isOn: Binding(
+                    get: { companionManager.isPipecatVoiceHarnessEnabled },
+                    set: { companionManager.setPipecatVoiceHarnessEnabled($0) }
+                )
+            )
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 10)

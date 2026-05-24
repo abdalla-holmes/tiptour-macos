@@ -55,6 +55,7 @@ final class CompanionManager: ObservableObject {
 
     @Published var isCuaActionDriverEnabled: Bool = TipTourDefaults.isCuaActionDriverEnabled
     @Published var isHermesOrchestratorEnabled: Bool = TipTourDefaults.isHermesOrchestratorEnabled
+    @Published var isPipecatVoiceHarnessEnabled: Bool = TipTourDefaults.isPipecatVoiceHarnessEnabled
 
     /// Whether the blue cursor overlay is currently visible on screen.
     @Published private(set) var isOverlayVisible: Bool = false
@@ -96,6 +97,7 @@ final class CompanionManager: ObservableObject {
     private var voiceModelSpeakingCancellable: AnyCancellable?
     private let claudeActionPlannerClient = ClaudeActionPlannerClient()
     private let hermesAgentClient = HermesAgentClient()
+    private let pipecatVoiceHarnessClient = PipecatVoiceHarnessClient()
     private var hermesSessionID: String?
     private lazy var textCommandPanelManager = TextCommandPanelManager(companionManager: self)
     private var detectionOverlayTask: Task<Void, Never>?
@@ -710,6 +712,21 @@ final class CompanionManager: ObservableObject {
         TipTourDefaults.isHermesOrchestratorEnabled = enabled
     }
 
+    func setPipecatVoiceHarnessEnabled(_ enabled: Bool) {
+        isPipecatVoiceHarnessEnabled = enabled
+        TipTourDefaults.isPipecatVoiceHarnessEnabled = enabled
+
+        guard enabled else { return }
+        Task {
+            do {
+                let health = try await pipecatVoiceHarnessClient.health()
+                print("[PipecatHarness] health ok=\(health.ok) service=\(health.service ?? "unknown")")
+            } catch {
+                print("[PipecatHarness] enabled, but local sidecar is not reachable yet: \(error.localizedDescription)")
+            }
+        }
+    }
+
     var tipTourConnections: [TipTourConnection] {
         [
             TipTourConnection(
@@ -725,6 +742,13 @@ final class CompanionManager: ObservableObject {
                 kind: .orchestrator,
                 description: "Optional long-running reasoning, memory, skills, and external tool orchestration.",
                 isEnabled: isHermesOrchestratorEnabled
+            ),
+            TipTourConnection(
+                id: "pipecat-voice-harness",
+                displayName: "Pipecat Voice",
+                kind: .voiceHarness,
+                description: "Optional local realtime voice sidecar. Pipecat can call TipTour tools and delegate long tasks to Hermes.",
+                isEnabled: isPipecatVoiceHarnessEnabled
             )
         ]
     }
@@ -2490,7 +2514,7 @@ final class CompanionManager: ObservableObject {
         let trimmedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPrompt.isEmpty else { return }
 
-        textCommandActivityText = "Planning next action..."
+        textCommandActivityText = "Planning"
         voiceState = .processing
 
         do {
@@ -2500,13 +2524,13 @@ final class CompanionManager: ObservableObject {
             )
             if !submissionResult.ok {
                 lastTranscript = "Text command failed: \(submissionResult.reason ?? "unknown")"
-                textCommandActivityText = "Failed: \(submissionResult.reason ?? "unknown")"
+                textCommandActivityText = "Failed - \(submissionResult.reason ?? "unknown")"
             } else {
-                textCommandActivityText = "Accepted by TipTour"
+                textCommandActivityText = "Action sent"
             }
         } catch {
             lastTranscript = error.localizedDescription
-            textCommandActivityText = "Error: \(error.localizedDescription)"
+            textCommandActivityText = "Error - \(error.localizedDescription)"
             print("[TextCommand] failed: \(error.localizedDescription)")
         }
 
@@ -2526,14 +2550,14 @@ final class CompanionManager: ObservableObject {
             isHermesAutoEnabled: isHermesOrchestratorEnabled
         )
         if sourceLabel == "TextCommand" {
-            textCommandActivityText = "Route: \(route.reason)"
+            textCommandActivityText = "Routing - \(route.reason)"
         }
 
         switch route.destination {
         case .localAction(let pointerActionRequest):
             print("[\(sourceLabel)] routing to local pointer action: \(route.reason)")
             if sourceLabel == "TextCommand" {
-                textCommandActivityText = "Local: \(pointerActionRequest.targetLabel ?? pointerActionRequest.goal)"
+                textCommandActivityText = "Local action - \(pointerActionRequest.targetLabel ?? pointerActionRequest.goal)"
             }
             let planResult = await engineFacade.runPointerAction(pointerActionRequest)
             if planResult.ok {
@@ -2542,7 +2566,7 @@ final class CompanionManager: ObservableObject {
 
             print("[\(sourceLabel)] local pointer action missed: \(planResult.reason ?? "unknown")")
             if sourceLabel == "TextCommand" {
-                textCommandActivityText = "Local miss; asking Claude..."
+                textCommandActivityText = "Asking Claude"
             }
 
         case .hermesLongTask:
@@ -2602,7 +2626,7 @@ final class CompanionManager: ObservableObject {
         sourceLabel: String
     ) async throws -> TipTourEngineSubmissionResult {
         if sourceLabel == "TextCommand" {
-            textCommandActivityText = "Hermes: connecting..."
+            textCommandActivityText = "Connecting to Hermes"
         }
 
         let hermesPrompt = hermesPromptWithTipTourContext(prompt, sourceLabel: sourceLabel)
@@ -2614,14 +2638,14 @@ final class CompanionManager: ObservableObject {
                     guard let self else { return }
                     self.lastTranscript = accumulatedText
                     if sourceLabel == "TextCommand" {
-                        self.textCommandActivityText = "Hermes: \(self.compactStatusText(accumulatedText))"
+                        self.textCommandActivityText = "Hermes thinking - \(self.compactStatusText(accumulatedText, showingTail: true))"
                     }
                 }
             },
             onToolProgress: { [weak self] progressText in
                 await MainActor.run {
                     guard let self else { return }
-                    let statusText = "Tool: \(progressText)"
+                    let statusText = "Hermes action - \(progressText)"
                     self.lastTranscript = statusText
                     if sourceLabel == "TextCommand" {
                         self.textCommandActivityText = statusText
@@ -2635,7 +2659,7 @@ final class CompanionManager: ObservableObject {
         if !finalText.isEmpty {
             lastTranscript = finalText
             if sourceLabel == "TextCommand" {
-                textCommandActivityText = "Hermes: \(compactStatusText(finalText))"
+                textCommandActivityText = "Hermes - \(compactStatusText(finalText))"
             }
         } else if sourceLabel == "TextCommand" {
             textCommandActivityText = "Hermes finished"
@@ -2676,12 +2700,25 @@ final class CompanionManager: ObservableObject {
         """
     }
 
-    private func compactStatusText(_ text: String) -> String {
-        let singleLineText = text
-            .replacingOccurrences(of: "\n", with: " ")
+    private func compactStatusText(_ text: String, showingTail: Bool = false) -> String {
+        let meaningfulLines = text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let sourceText = meaningfulLines.last ?? text
+        let singleLineText = sourceText
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "`", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard singleLineText.count > 110 else { return singleLineText }
-        let endIndex = singleLineText.index(singleLineText.startIndex, offsetBy: 110)
+        guard singleLineText.count > 92 else { return singleLineText }
+        if showingTail {
+            let startIndex = singleLineText.index(singleLineText.endIndex, offsetBy: -92)
+            return "..." + String(singleLineText[startIndex...])
+        }
+        let endIndex = singleLineText.index(singleLineText.startIndex, offsetBy: 92)
         return String(singleLineText[..<endIndex]) + "..."
     }
 
@@ -2693,7 +2730,7 @@ final class CompanionManager: ObservableObject {
         print("[\(sourceLabel)] shared Claude planner workflow entered")
         if shouldRunNativeDetection {
             if sourceLabel == "TextCommand" {
-                textCommandActivityText = "Refreshing local targets..."
+                textCommandActivityText = "Refreshing targets"
             }
             print("[\(sourceLabel)] refreshing native detection before planning")
             await refreshNativeDetectionOverlay(reason: "\(sourceLabel) planning")
@@ -2702,7 +2739,7 @@ final class CompanionManager: ObservableObject {
         let captures: [CompanionScreenCapture]
         if isScreenshotStreamingEnabled {
             if sourceLabel == "TextCommand" {
-                textCommandActivityText = "Capturing screen context..."
+                textCommandActivityText = "Capturing screen"
             }
             print("[\(sourceLabel)] capturing screenshots for Claude planner")
             captures = (try? await CompanionScreenCaptureUtility.captureAllScreensAsJPEG()) ?? []
@@ -2725,7 +2762,7 @@ final class CompanionManager: ObservableObject {
 
         if sourceLabel == "TextCommand" {
             let targetSummary = targetAppName.map { " for \($0)" } ?? ""
-            textCommandActivityText = "Calling Claude planner\(targetSummary)..."
+            textCommandActivityText = "Claude planner\(targetSummary)"
         } else {
             print("[\(sourceLabel)] calling Claude planner")
         }
@@ -2743,7 +2780,7 @@ final class CompanionManager: ObservableObject {
         if sourceLabel == "TextCommand",
            let firstStep = plannerResult.plan.steps.first {
             let stepLabel = firstStep.label ?? firstStep.value ?? firstStep.hint
-            textCommandActivityText = "Tool: submit_workflow_plan -> \(stepLabel)"
+            textCommandActivityText = "Action - \(stepLabel)"
         }
         let submissionResult = engineFacade.submitSingleActionWorkflowPlan(plannerResult.plan)
         print("[\(sourceLabel)] submitted single action: ok=\(submissionResult.ok), reason=\(submissionResult.reason ?? "none")")

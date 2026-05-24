@@ -6,16 +6,18 @@ struct TextCommandPanelView: View {
     @State private var commandText: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
                 Image(systemName: "command")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(DS.Colors.accent)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(DS.Colors.textTertiary)
+                    .frame(width: 16, height: 16)
 
                 TextField("Ask TipTour...", text: $commandText)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundColor(DS.Colors.textPrimary)
+                    .tint(DS.Colors.textSecondary)
                     .focused($isInputFocused)
                     .onSubmit {
                         submitCommand()
@@ -28,33 +30,24 @@ struct TextCommandPanelView: View {
 
             if let activityText = companionManager.textCommandActivityText,
                !activityText.isEmpty {
-                HStack(spacing: 6) {
-                    Circle()
-                        .fill(DS.Colors.accent.opacity(companionManager.voiceState == .processing ? 0.95 : 0.45))
-                        .frame(width: 5, height: 5)
-
-                    Text(activityText)
-                        .font(.system(size: 11))
-                        .foregroundColor(DS.Colors.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                .padding(.leading, 20)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                TextCommandActivityTicker(
+                    text: activityText,
+                    isActive: companionManager.voiceState == .processing
+                )
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(DS.Colors.background)
-                .shadow(color: Color.black.opacity(0.40), radius: 14, x: 0, y: 7)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(DS.Colors.background.opacity(0.96))
+                .shadow(color: Color.black.opacity(0.32), radius: 18, x: 0, y: 10)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(DS.Colors.borderStrong, lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(DS.Colors.borderSubtle.opacity(0.72), lineWidth: 0.8)
         )
-        .animation(.easeOut(duration: 0.16), value: companionManager.textCommandActivityText)
+        .animation(.snappy(duration: 0.22), value: companionManager.textCommandActivityText)
         .onAppear {
             commandText = ""
             DispatchQueue.main.async {
@@ -70,5 +63,39 @@ struct TextCommandPanelView: View {
         Task {
             await companionManager.submitTextCommand(trimmedCommand)
         }
+    }
+}
+
+private struct TextCommandActivityTicker: View {
+    let text: String
+    let isActive: Bool
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(DS.Colors.textSecondary.opacity(isActive ? 0.82 : 0.42))
+                .frame(width: 4, height: 4)
+
+            ZStack(alignment: .leading) {
+                Text(text)
+                    .id(text)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundColor(DS.Colors.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .transition(
+                        .asymmetric(
+                            insertion: .move(edge: .bottom).combined(with: .opacity),
+                            removal: .move(edge: .top).combined(with: .opacity)
+                        )
+                    )
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
+        }
+        .padding(.leading, 25)
+        .padding(.trailing, 2)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+        .accessibilityElement(children: .combine)
     }
 }

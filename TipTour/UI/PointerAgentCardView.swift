@@ -81,7 +81,7 @@ struct PointerAgentCardView: View {
 
     private var pointerAgentSubtitle: String {
         if companionManager.isHermesOrchestratorEnabled {
-            return "Hermes plans; TipTour points and acts."
+            return "Auto routes bigger tasks to Hermes."
         }
         return "TipTour plans one action, points, then acts."
     }

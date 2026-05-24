@@ -222,11 +222,11 @@ struct CompanionPanelView: View {
                 }
 
                 compactControlButton(
-                    title: companionManager.isHermesOrchestratorEnabled ? "Hermes" : "Local",
-                    subtitle: companionManager.isHermesOrchestratorEnabled ? "delegate" : "planner",
+                    title: companionManager.isHermesOrchestratorEnabled ? "Auto" : "Local",
+                    subtitle: companionManager.isHermesOrchestratorEnabled ? "router" : "planner",
                     systemImage: companionManager.isHermesOrchestratorEnabled ? "link" : "bolt",
                     isActive: companionManager.isHermesOrchestratorEnabled,
-                    helpText: "Toggle Hermes orchestration"
+                    helpText: "Route long tasks to Hermes"
                 ) {
                     companionManager.setHermesOrchestratorEnabled(!companionManager.isHermesOrchestratorEnabled)
                 }
@@ -707,7 +707,7 @@ struct CompanionPanelView: View {
             )
 
             connectionToggleRow(
-                title: "Hermes",
+                title: "Hermes Auto",
                 subtitle: companionManager.isHermesOrchestratorEnabled
                     ? "auto delegate long tasks"
                     : "TipTour stays local",

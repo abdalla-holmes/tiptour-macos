@@ -2507,12 +2507,42 @@ final class CompanionManager: ObservableObject {
         sourceLabel: String
     ) async throws -> TipTourEngineSubmissionResult {
         print("[\(sourceLabel)] pointer workflow entered")
-        if isHermesOrchestratorEnabled {
-            print("[\(sourceLabel)] routing to Hermes")
+
+        let targetAppName = currentPointerTargetAppName()
+        let route = PointerPromptRouter.route(
+            prompt: prompt,
+            targetAppName: targetAppName,
+            isHermesAutoEnabled: isHermesOrchestratorEnabled
+        )
+        if sourceLabel == "TextCommand" {
+            textCommandActivityText = "Route: \(route.reason)"
+        }
+
+        switch route.destination {
+        case .localAction(let pointerActionRequest):
+            print("[\(sourceLabel)] routing to local pointer action: \(route.reason)")
+            if sourceLabel == "TextCommand" {
+                textCommandActivityText = "Local: \(pointerActionRequest.targetLabel ?? pointerActionRequest.goal)"
+            }
+            let planResult = await engineFacade.runPointerAction(pointerActionRequest)
+            if planResult.ok {
+                return submissionResult(from: planResult)
+            }
+
+            print("[\(sourceLabel)] local pointer action missed: \(planResult.reason ?? "unknown")")
+            if sourceLabel == "TextCommand" {
+                textCommandActivityText = "Local miss; asking Claude..."
+            }
+
+        case .hermesLongTask:
+            print("[\(sourceLabel)] routing to Hermes: \(route.reason)")
             return try await runHermesPromptWorkflow(
                 prompt: prompt,
                 sourceLabel: sourceLabel
             )
+
+        case .claudeOneStep:
+            print("[\(sourceLabel)] routing to Claude one-step planner: \(route.reason)")
         }
 
         guard let claudeAPIKey = KeychainStore.claudeAPIKey?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2529,6 +2559,31 @@ final class CompanionManager: ObservableObject {
             sourceLabel: sourceLabel,
             claudeAPIKey: claudeAPIKey
         )
+    }
+
+    private func submissionResult(from planResult: TipTourEnginePlanNextActionResult) -> TipTourEngineSubmissionResult {
+        TipTourEngineSubmissionResult(
+            ok: planResult.ok,
+            reason: planResult.reason,
+            message: planResult.message,
+            acceptedSteps: planResult.ok && planResult.workflowOutcome?.status == "completed" ? 1 : 0,
+            ignoredSteps: 0,
+            activeApp: planResult.activeApp
+        )
+    }
+
+    private func currentPointerTargetAppName() -> String? {
+        lastFocusHighlightContext?.hoveredWindow?.appName
+            ?? lastHoverWindowContext?.appName
+            ?? AccessibilityTreeResolver.userTargetAppOverride?.localizedName
+            ?? NSWorkspace.shared.frontmostApplication?.localizedName
+    }
+
+    private func currentPointerTargetApplicationForSkills() -> NSRunningApplication? {
+        lastFocusHighlightContext?.hoveredWindow
+            .flatMap { NSRunningApplication(processIdentifier: $0.processIdentifier) }
+            ?? AccessibilityTreeResolver.userTargetAppOverride
+            ?? NSWorkspace.shared.frontmostApplication
     }
 
     private func runHermesPromptWorkflow(
@@ -2649,15 +2704,9 @@ final class CompanionManager: ObservableObject {
         print("[\(sourceLabel)] local targets=\(localTargets.count)")
         let focusHighlightContextDescription = plannerFocusHighlightContextDescription(captures: captures)
         print("[\(sourceLabel)] focus highlight context=\(focusHighlightContextDescription == nil ? "none" : "present")")
-        let targetAppName = lastFocusHighlightContext?.hoveredWindow?.appName
-            ?? lastHoverWindowContext?.appName
-            ?? AccessibilityTreeResolver.userTargetAppOverride?.localizedName
-            ?? NSWorkspace.shared.frontmostApplication?.localizedName
+        let targetAppName = currentPointerTargetAppName()
         print("[\(sourceLabel)] target app=\(targetAppName ?? "unknown")")
-        let targetApplicationForSkills = lastFocusHighlightContext?.hoveredWindow
-            .flatMap { NSRunningApplication(processIdentifier: $0.processIdentifier) }
-            ?? AccessibilityTreeResolver.userTargetAppOverride
-            ?? NSWorkspace.shared.frontmostApplication
+        let targetApplicationForSkills = currentPointerTargetApplicationForSkills()
         print("[\(sourceLabel)] loading app skill instructions")
         let appSkillInstructions = MarkdownAppSkillRegistry.shared
             .plannerInstructions(for: targetApplicationForSkills)

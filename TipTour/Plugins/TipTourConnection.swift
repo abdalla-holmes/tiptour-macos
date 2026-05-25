@@ -14,7 +14,6 @@ enum TipTourConnectionKind: String, Codable, Hashable {
     case orchestrator
     case perception
     case harness
-    case voiceHarness
 }
 
 struct TipTourConnection: Identifiable, Codable, Hashable {

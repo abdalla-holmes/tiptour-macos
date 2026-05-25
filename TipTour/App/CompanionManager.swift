@@ -57,7 +57,6 @@ final class CompanionManager: ObservableObject {
     @Published var isHermesOrchestratorEnabled: Bool = TipTourDefaults.isHermesOrchestratorEnabled
     @Published var hermesAPIBaseURL: String = TipTourDefaults.hermesAPIBaseURL
     @Published private(set) var hermesConnectionStatus: HermesConnectionStatus = .idle
-    @Published var isPipecatVoiceHarnessEnabled: Bool = TipTourDefaults.isPipecatVoiceHarnessEnabled
 
     /// Whether the blue cursor overlay is currently visible on screen.
     @Published private(set) var isOverlayVisible: Bool = false
@@ -99,7 +98,6 @@ final class CompanionManager: ObservableObject {
     private var voiceModelSpeakingCancellable: AnyCancellable?
     private let claudeActionPlannerClient = ClaudeActionPlannerClient()
     private let hermesAgentClient = HermesAgentClient()
-    private let pipecatVoiceHarnessClient = PipecatVoiceHarnessClient()
     private var hermesSessionID: String?
     private var isTextCommandHermesWorkflowActive = false
     private lazy var textCommandPanelManager = TextCommandPanelManager(companionManager: self)
@@ -776,21 +774,6 @@ final class CompanionManager: ObservableObject {
         }
     }
 
-    func setPipecatVoiceHarnessEnabled(_ enabled: Bool) {
-        isPipecatVoiceHarnessEnabled = enabled
-        TipTourDefaults.isPipecatVoiceHarnessEnabled = enabled
-
-        guard enabled else { return }
-        Task {
-            do {
-                let health = try await pipecatVoiceHarnessClient.health()
-                print("[PipecatHarness] health ok=\(health.ok) service=\(health.service ?? "unknown")")
-            } catch {
-                print("[PipecatHarness] enabled, but local sidecar is not reachable yet: \(error.localizedDescription)")
-            }
-        }
-    }
-
     var tipTourConnections: [TipTourConnection] {
         [
             TipTourConnection(
@@ -806,13 +789,6 @@ final class CompanionManager: ObservableObject {
                 kind: .orchestrator,
                 description: "Optional long-running reasoning, memory, skills, and external tool orchestration.",
                 isEnabled: isHermesOrchestratorEnabled
-            ),
-            TipTourConnection(
-                id: "pipecat-voice-harness",
-                displayName: "Pipecat Voice",
-                kind: .voiceHarness,
-                description: "Optional local realtime voice sidecar. Pipecat can call TipTour tools and delegate long tasks to Hermes.",
-                isEnabled: isPipecatVoiceHarnessEnabled
             )
         ]
     }

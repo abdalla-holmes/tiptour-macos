@@ -20,7 +20,6 @@ enum TipTourDefaults {
         case hermesAPIBaseURL
         case isNekoModeEnabled
         case isPanelPinned
-        case isPipecatVoiceHarnessEnabled
         case isScreenshotStreamingEnabled
         case hasPreviouslyConfirmedScreenRecordingPermission = "com.learningbuddy.hasPreviouslyConfirmedScreenRecordingPermission"
     }
@@ -39,7 +38,6 @@ enum TipTourDefaults {
             Key.hermesAPIBaseURL.rawValue: "http://127.0.0.1:8642",
             Key.isNekoModeEnabled.rawValue: false,
             Key.isPanelPinned.rawValue: false,
-            Key.isPipecatVoiceHarnessEnabled.rawValue: false,
             Key.isScreenshotStreamingEnabled.rawValue: true
         ])
     }
@@ -105,11 +103,6 @@ enum TipTourDefaults {
         set { set(newValue, for: .isPanelPinned) }
     }
 
-    static var isPipecatVoiceHarnessEnabled: Bool {
-        get { bool(for: .isPipecatVoiceHarnessEnabled) }
-        set { set(newValue, for: .isPipecatVoiceHarnessEnabled) }
-    }
-
     static var isScreenshotStreamingEnabled: Bool {
         get { bool(for: .isScreenshotStreamingEnabled) }
         set { set(newValue, for: .isScreenshotStreamingEnabled) }
@@ -141,8 +134,7 @@ enum TipTourDefaults {
              .isDetectionOverlayEnabled,
              .isHermesOrchestratorEnabled,
              .isNekoModeEnabled,
-             .isPanelPinned,
-             .isPipecatVoiceHarnessEnabled:
+             .isPanelPinned:
             return false
         case .hermesAPIBaseURL:
             return false

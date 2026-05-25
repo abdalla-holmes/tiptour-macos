@@ -132,20 +132,6 @@ struct TipTourSettingsView: View {
     private var voiceSection: some View {
         VStack(alignment: .leading, spacing: 14) {
             ProviderSetupView(companionManager: companionManager)
-
-            settingsRow(
-                title: "Pipecat Voice",
-                subtitle: companionManager.isPipecatVoiceHarnessEnabled
-                    ? "Use the local realtime voice sidecar when it is available."
-                    : "Use native Gemini Live directly for now.",
-                systemImage: "waveform",
-                isOn: Binding(
-                    get: { companionManager.isPipecatVoiceHarnessEnabled },
-                    set: { companionManager.setPipecatVoiceHarnessEnabled($0) }
-                )
-            )
-
-            note("Gemini is the built-in realtime voice path. Pipecat is kept as a local sidecar so it can own voice orchestration while TipTour keeps macOS grounding and actions.")
         }
     }
 
@@ -176,16 +162,6 @@ struct TipTourSettingsView: View {
             )
 
             hermesConnectionCard
-
-            settingsRow(
-                title: "Pipecat Voice",
-                subtitle: "Local sidecar health is checked when you enable it.",
-                systemImage: "dot.radiowaves.left.and.right",
-                isOn: Binding(
-                    get: { companionManager.isPipecatVoiceHarnessEnabled },
-                    set: { companionManager.setPipecatVoiceHarnessEnabled($0) }
-                )
-            )
         }
     }
 
@@ -562,7 +538,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
     var subtitle: String {
         switch self {
         case .voice:
-            return "Provider keys and the optional Pipecat voice sidecar."
+            return "Provider keys for realtime voice and one-step planning."
         case .connections:
             return "Local harnesses and desktop action integrations."
         case .privacy:

@@ -55,6 +55,8 @@ final class CompanionManager: ObservableObject {
 
     @Published var isCuaActionDriverEnabled: Bool = TipTourDefaults.isCuaActionDriverEnabled
     @Published var isHermesOrchestratorEnabled: Bool = TipTourDefaults.isHermesOrchestratorEnabled
+    @Published var hermesAPIBaseURL: String = TipTourDefaults.hermesAPIBaseURL
+    @Published private(set) var hermesConnectionStatus: HermesConnectionStatus = .idle
     @Published var isPipecatVoiceHarnessEnabled: Bool = TipTourDefaults.isPipecatVoiceHarnessEnabled
 
     /// Whether the blue cursor overlay is currently visible on screen.
@@ -720,6 +722,58 @@ final class CompanionManager: ObservableObject {
     func setHermesOrchestratorEnabled(_ enabled: Bool) {
         isHermesOrchestratorEnabled = enabled
         TipTourDefaults.isHermesOrchestratorEnabled = enabled
+        guard enabled else { return }
+        Task {
+            await detectHermesConnection()
+        }
+    }
+
+    func setHermesAPIBaseURL(_ baseURL: String) {
+        let normalizedBaseURL = HermesAgentClient.normalizedBaseURL(baseURL)
+        hermesAPIBaseURL = normalizedBaseURL
+        TipTourDefaults.hermesAPIBaseURL = normalizedBaseURL
+        hermesConnectionStatus = HermesConnectionStatus(
+            state: .idle,
+            baseURL: normalizedBaseURL,
+            detail: "Hermes has not been checked yet.",
+            detectedInstallPath: hermesConnectionStatus.detectedInstallPath
+        )
+    }
+
+    func testHermesConnection() async {
+        hermesConnectionStatus = HermesConnectionStatus(
+            state: .checking,
+            baseURL: hermesAPIBaseURL,
+            detail: "Checking Hermes API server.",
+            detectedInstallPath: hermesConnectionStatus.detectedInstallPath
+        )
+        let status = await hermesAgentClient.testConnection(
+            baseURL: hermesAPIBaseURL
+        )
+        hermesConnectionStatus = status
+        if status.state == .connected {
+            setHermesAPIBaseURL(status.baseURL)
+            hermesConnectionStatus = status
+        }
+    }
+
+    func detectHermesConnection() async {
+        hermesConnectionStatus = HermesConnectionStatus(
+            state: .checking,
+            baseURL: hermesAPIBaseURL,
+            detail: "Looking for Hermes.",
+            detectedInstallPath: nil
+        )
+
+        let status = await hermesAgentClient.detectLocalConnection()
+        hermesConnectionStatus = status
+        switch status.state {
+        case .connected:
+            setHermesAPIBaseURL(status.baseURL)
+            hermesConnectionStatus = status
+        default:
+            break
+        }
     }
 
     func setPipecatVoiceHarnessEnabled(_ enabled: Bool) {

@@ -17,6 +17,7 @@ enum TipTourDefaults {
         case isCuaActionDriverEnabled
         case isDetectionOverlayEnabled
         case isHermesOrchestratorEnabled
+        case hermesAPIBaseURL
         case isNekoModeEnabled
         case isPanelPinned
         case isPipecatVoiceHarnessEnabled
@@ -35,6 +36,7 @@ enum TipTourDefaults {
             Key.isCuaActionDriverEnabled.rawValue: true,
             Key.isDetectionOverlayEnabled.rawValue: false,
             Key.isHermesOrchestratorEnabled.rawValue: false,
+            Key.hermesAPIBaseURL.rawValue: "http://127.0.0.1:8642",
             Key.isNekoModeEnabled.rawValue: false,
             Key.isPanelPinned.rawValue: false,
             Key.isPipecatVoiceHarnessEnabled.rawValue: false,
@@ -80,6 +82,17 @@ enum TipTourDefaults {
     static var isHermesOrchestratorEnabled: Bool {
         get { bool(for: .isHermesOrchestratorEnabled) }
         set { set(newValue, for: .isHermesOrchestratorEnabled) }
+    }
+
+    static var hermesAPIBaseURL: String {
+        get {
+            string(for: .hermesAPIBaseURL)
+                ?? "http://127.0.0.1:8642"
+        }
+        set {
+            let trimmedValue = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            UserDefaults.standard.set(trimmedValue.isEmpty ? "http://127.0.0.1:8642" : trimmedValue, forKey: Key.hermesAPIBaseURL.rawValue)
+        }
     }
 
     static var isNekoModeEnabled: Bool {
@@ -131,6 +144,12 @@ enum TipTourDefaults {
              .isPanelPinned,
              .isPipecatVoiceHarnessEnabled:
             return false
+        case .hermesAPIBaseURL:
+            return false
         }
+    }
+
+    private static func string(for key: Key) -> String? {
+        UserDefaults.standard.string(forKey: key.rawValue)
     }
 }

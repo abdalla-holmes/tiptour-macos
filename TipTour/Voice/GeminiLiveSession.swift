@@ -64,7 +64,8 @@ final class GeminiLiveSession: ObservableObject {
     var onError: ((Error) -> Void)?
 
     /// Legacy handler for older Gemini sessions that still call the removed
-    /// point tool. New sessions only declare `submit_workflow_plan`.
+    /// point tool. New sessions declare `submit_workflow_plan` plus
+    /// `edit_highlighted_image`.
     var onPointAtElement: ((_ id: String, _ label: String, _ box2DNormalized: [Int]?, _ screenshotJPEG: Data?) async -> [String: Any])?
 
     /// Fired when Gemini calls `submit_workflow_plan(goal, app, steps)`.
@@ -72,6 +73,16 @@ final class GeminiLiveSession: ObservableObject {
     /// the handler just hands the steps off to WorkflowRunner and returns
     /// an acknowledgement — no separate planner round-trip needed.
     var onSubmitWorkflowPlan: ((_ id: String, _ goal: String, _ app: String, _ steps: [[String: Any]]) async -> [String: Any])?
+
+    /// Fired when Gemini calls `edit_highlighted_image(prompt, ...)`.
+    /// TipTour resolves the current focus highlight to an image source and
+    /// optionally calls the configured image model.
+    var onEditHighlightedImage: ((_ id: String, _ prompt: String, _ sourceFilePath: String?, _ execute: Bool, _ provider: String?, _ model: String?, _ openResult: Bool?) async -> [String: Any])?
+
+    /// Fired when Gemini calls `create_note(title, body)`.
+    /// This deterministic demo path opens Notes, creates a note, and types
+    /// the supplied content as one voice tool call.
+    var onCreateNote: ((_ id: String, _ title: String?, _ body: String) async -> [String: Any])?
 
     // MARK: - Dependencies
 
@@ -899,6 +910,36 @@ final class GeminiLiveSession: ObservableObject {
                     response = await handler(id, goal, app, steps)
                 } else {
                     print("[GeminiLiveSession] submit_workflow_plan called with no handler or empty steps")
+                }
+
+            case "edit_highlighted_image":
+                let prompt = (args["prompt"] as? String)
+                    ?? (args["instruction"] as? String)
+                    ?? (args["goal"] as? String)
+                    ?? ""
+                let sourceFilePath = (args["source_file_path"] as? String)
+                    ?? (args["sourceFilePath"] as? String)
+                let execute = (args["execute"] as? Bool) ?? true
+                let provider = args["provider"] as? String
+                let model = args["model"] as? String
+                let openResult = (args["open_result"] as? Bool)
+                    ?? (args["openResult"] as? Bool)
+                if !prompt.isEmpty, let handler = onEditHighlightedImage {
+                    response = await handler(id, prompt, sourceFilePath, execute, provider, model, openResult)
+                } else {
+                    print("[GeminiLiveSession] edit_highlighted_image called with no handler or empty prompt")
+                }
+
+            case "create_note":
+                let title = (args["title"] as? String)
+                let body = (args["body"] as? String)
+                    ?? (args["text"] as? String)
+                    ?? (args["content"] as? String)
+                    ?? ""
+                if !body.isEmpty, let handler = onCreateNote {
+                    response = await handler(id, title, body)
+                } else {
+                    print("[GeminiLiveSession] create_note called with no handler or empty body")
                 }
 
             default:

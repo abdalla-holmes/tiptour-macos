@@ -2,6 +2,12 @@
 
 TipTour should stay the native macOS perception/action engine. Hermes should stay an external orchestrator.
 
+Hermes should use its own agent toolset for non-desktop work: web search,
+page extraction, browser automation, downloads, file operations, terminal
+commands, memory, skills, and subtasks. TipTour should enter the loop only
+when Hermes needs the local Mac's visual context, a grounded GUI action, or
+post-action verification.
+
 The integration boundary is the local TipTour harness server:
 
 ```text
@@ -98,6 +104,54 @@ Returns recent grounded-action attempts, including the chosen target, WorkflowRu
 curl http://127.0.0.1:19474/v1/action-history
 ```
 
+### Highlighted Image Edit
+
+Use `/v1/resolve-highlight-source` when the user has highlighted something and
+the agent needs to decide what tools are valid. The response includes the
+source file/URL/text context plus suggested tools such as `image_edit`,
+`text_edit`, `selected_text_edit`, `open_source`, or `visual_context`.
+
+```bash
+curl -X POST http://127.0.0.1:19474/v1/resolve-highlight-source \
+  -H 'content-type: application/json' \
+  -d '{"trace_id":"same task trace"}'
+```
+
+Prepares or executes a file-aware image edit based on the user's latest
+TipTour focus highlight. TipTour tries to resolve the original image file via
+AX document attributes, app-specific AppleScript such as Preview/Finder, and
+browser URLs before falling back to screenshot-only artifacts.
+
+Preparation mode creates local artifacts only:
+
+```bash
+curl -X POST http://127.0.0.1:19474/v1/image-edit \
+  -H 'content-type: application/json' \
+  -d '{
+    "prompt": "remove the object inside the highlighted area",
+    "source": "current_highlight",
+    "execute": false
+  }'
+```
+
+Execution mode uses the local Gemini key and saves a copy:
+
+```bash
+curl -X POST http://127.0.0.1:19474/v1/image-edit \
+  -H 'content-type: application/json' \
+  -d '{
+    "prompt": "make the highlighted area brighter",
+    "source": "current_highlight",
+    "provider": "gemini",
+    "model": "gemini-2.5-flash-image",
+    "execute": true,
+    "output_mode": "copy"
+  }'
+```
+
+The endpoint never overwrites the original file. It writes artifacts under
+`~/Library/Application Support/TipTour/image-edits/<trace_id>/`.
+
 ### Submit One Action
 
 External harnesses submit the same single-action workflow shape Gemini uses internally.
@@ -125,6 +179,12 @@ External action requests also respect the menu bar connection toggles. If the CU
 ## Why This Shape
 
 Hermes is good at long-running reasoning, memory, skills, messaging, and tool orchestration.
+For example, when the user asks Blender to fetch a nice model from the web,
+Hermes should search, inspect the license/source, download the asset, validate
+the file, and import it through Blender scripting or a local terminal path when
+possible. TipTour should be used to drive `File > Import/Open/Append` only when
+visible UI interaction is requested or scripting is unavailable, and to verify
+the viewport after the import.
 
 TipTour is good at:
 

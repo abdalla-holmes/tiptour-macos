@@ -139,6 +139,16 @@ final class CompanionManager: ObservableObject {
         detectionElementCountProvider: {
             LocalPerceptionTargetCache.shared.freshTargetCount()
         },
+        currentFocusHighlightContextProvider: { [weak self] in
+            self?.lastFocusHighlightContext
+        },
+        currentTargetApplicationProvider: {
+            AccessibilityTreeResolver.userTargetAppOverride
+                ?? NSWorkspace.shared.frontmostApplication
+        },
+        latestScreenCaptureProvider: { [weak self] in
+            self?._voiceBackend?.latestCapture
+        },
         refreshLocalPerception: { [weak self] reason in
             await self?.refreshNativeDetectionOverlay(reason: reason)
         },
@@ -200,6 +210,20 @@ final class CompanionManager: ObservableObject {
         }
         backend.onSubmitWorkflowPlan = { [weak self] id, goal, app, steps in
             await self?.handleToolSubmitWorkflowPlan(id: id, goal: goal, app: app, steps: steps) ?? ["ok": false]
+        }
+        backend.onEditHighlightedImage = { [weak self] id, prompt, sourceFilePath, execute, provider, model, openResult in
+            await self?.handleToolEditHighlightedImage(
+                id: id,
+                prompt: prompt,
+                sourceFilePath: sourceFilePath,
+                execute: execute,
+                provider: provider,
+                model: model,
+                openResult: openResult
+            ) ?? ["ok": false]
+        }
+        backend.onCreateNote = { [weak self] id, title, body in
+            await self?.handleToolCreateNote(id: id, title: title, body: body) ?? ["ok": false]
         }
         backend.onInputTranscriptUpdate = { [weak self] fullInputTranscript in
             guard let self else { return }
@@ -741,6 +765,196 @@ final class CompanionManager: ObservableObject {
             "accepted_steps": stepLabels.count,
             "ignored_steps": max(0, normalizedSteps.count - parsedSteps.count)
         ]
+    }
+
+    /// Handle the `edit_highlighted_image` tool call. This is the direct
+    /// voice path for demos: Gemini describes the edit, TipTour resolves the
+    /// current highlight/source image, then saves the model result as a copy.
+    @MainActor
+    private func handleToolEditHighlightedImage(
+        id: String,
+        prompt: String,
+        sourceFilePath: String?,
+        execute: Bool,
+        provider: String?,
+        model: String?,
+        openResult: Bool?
+    ) async -> [String: Any] {
+        let traceID = TipTourActionTrace.makeID(source: "voice_image")
+        PipelineLogStore.shared.record(
+            category: "voice_tool",
+            name: "edit_highlighted_image",
+            status: "received",
+            message: prompt,
+            metadata: [
+                TipTourActionTrace.metadataKey: traceID,
+                "tool_call_id": id,
+                "execute": String(execute),
+                "provider": provider ?? "default",
+                "model": model ?? "default"
+            ]
+        )
+
+        if let rejection = rejectIfToolCallShouldNotRun(id: id, toolName: "edit_highlighted_image") {
+            PipelineLogStore.shared.record(
+                category: "voice_tool",
+                name: "edit_highlighted_image",
+                status: "rejected",
+                message: rejection["reason"] as? String,
+                metadata: [
+                    TipTourActionTrace.metadataKey: traceID,
+                    "tool_call_id": id
+                ]
+            )
+            return rejection
+        }
+
+        voiceBackend.suppressScreenshotsUntilUserSpeaks()
+
+        let request = TipTourImageEditRequest(
+            prompt: prompt,
+            instruction: nil,
+            goal: nil,
+            source: "current_highlight",
+            sourceFilePath: sourceFilePath,
+            source_file_path: nil,
+            execute: execute,
+            provider: provider,
+            model: model,
+            outputMode: "copy",
+            output_mode: nil,
+            openResult: openResult ?? true,
+            open_result: nil,
+            traceID: traceID,
+            trace_id: nil
+        )
+        let result = await tipTourEngine.imageEdit(request)
+        PipelineLogStore.shared.record(
+            category: "voice_tool",
+            name: "edit_highlighted_image",
+            status: result.ok ? "completed" : "failed",
+            message: result.message,
+            metadata: [
+                TipTourActionTrace.metadataKey: traceID,
+                "tool_call_id": id,
+                "source_kind": result.source.kind,
+                "content_category": result.source.contentCategory,
+                "source_path": result.source.filePath ?? "none",
+                "execution_attempted": String(result.execution?.attempted ?? false),
+                "execution_ok": String(result.execution?.ok ?? false),
+                "output_path": result.execution?.outputPath ?? "none"
+            ]
+        )
+
+        return Self.dictionary(from: result)
+    }
+
+    private static func dictionary<T: Encodable>(from value: T) -> [String: Any] {
+        guard let data = try? JSONEncoder().encode(value),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [
+                "ok": false,
+                "reason": "response_encoding_failed",
+                "message": "TipTour could not encode the tool response."
+            ]
+        }
+        return object
+    }
+
+    @MainActor
+    private func handleToolCreateNote(
+        id: String,
+        title: String?,
+        body: String
+    ) async -> [String: Any] {
+        let traceID = TipTourActionTrace.makeID(source: "voice_note")
+        let trimmedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        PipelineLogStore.shared.record(
+            category: "voice_tool",
+            name: "create_note",
+            status: "received",
+            message: trimmedTitle?.isEmpty == false ? trimmedTitle : String(trimmedBody.prefix(80)),
+            metadata: [
+                TipTourActionTrace.metadataKey: traceID,
+                "tool_call_id": id,
+                "body_characters": String(trimmedBody.count)
+            ]
+        )
+
+        if let rejection = rejectIfToolCallShouldNotRun(id: id, toolName: "create_note") {
+            PipelineLogStore.shared.record(
+                category: "voice_tool",
+                name: "create_note",
+                status: "rejected",
+                message: rejection["reason"] as? String,
+                metadata: [
+                    TipTourActionTrace.metadataKey: traceID,
+                    "tool_call_id": id
+                ]
+            )
+            return rejection
+        }
+
+        guard !trimmedBody.isEmpty else {
+            return [
+                "ok": false,
+                "reason": "empty_note_body",
+                "message": "No note text was provided."
+            ]
+        }
+
+        voiceBackend.suppressScreenshotsUntilUserSpeaks()
+
+        do {
+            try await ActionExecutor.shared.openApplication(named: "Notes")
+            let notesApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Notes").first
+            try await ActionExecutor.shared.pressKeyboardShortcut("Cmd+N", activatingTargetApp: notesApp)
+            try await Task.sleep(nanoseconds: 350_000_000)
+            let noteText: String
+            if let trimmedTitle, !trimmedTitle.isEmpty,
+               !trimmedBody.localizedCaseInsensitiveContains(trimmedTitle) {
+                noteText = "\(trimmedTitle)\n\(trimmedBody)"
+            } else {
+                noteText = trimmedBody
+            }
+            try await ActionExecutor.shared.typeText(noteText, activatingTargetApp: notesApp)
+            PipelineLogStore.shared.record(
+                category: "voice_tool",
+                name: "create_note",
+                status: "completed",
+                message: "Created and filled a new note.",
+                metadata: [
+                    TipTourActionTrace.metadataKey: traceID,
+                    "tool_call_id": id,
+                    "body_characters": String(noteText.count)
+                ]
+            )
+            return [
+                "ok": true,
+                "trace_id": traceID,
+                "message": "Created and filled a new note.",
+                "app": "Notes",
+                "character_count": noteText.count
+            ]
+        } catch {
+            PipelineLogStore.shared.record(
+                category: "voice_tool",
+                name: "create_note",
+                status: "failed",
+                message: error.localizedDescription,
+                metadata: [
+                    TipTourActionTrace.metadataKey: traceID,
+                    "tool_call_id": id
+                ]
+            )
+            return [
+                "ok": false,
+                "trace_id": traceID,
+                "reason": "create_note_failed",
+                "message": error.localizedDescription
+            ]
+        }
     }
 
     /// Set of tool-call IDs we've already dispatched within the current
@@ -2274,9 +2488,14 @@ final class CompanionManager: ObservableObject {
     - instead, when it fits naturally, end by planting a seed — mention something bigger or more ambitious they could try, a related concept that goes deeper, or a next-level technique that builds on what you just explained. make it something worth coming back for, not a question they'd just nod to. it's okay to not end with anything extra if the answer is complete on its own.
     - if you receive multiple screen images, the one labeled "primary focus" is where the cursor is — prioritize that one but reference others if relevant.
 
-    computer control via tools (VERY IMPORTANT — read carefully):
+    tools (VERY IMPORTANT — read carefully):
 
-    you have exactly ONE tool: submit_workflow_plan. call AT MOST ONE tool per turn. do NOT narrate before the tool call. call it silently, wait for the response, THEN speak ONCE.
+    you have exactly THREE tools:
+    - submit_workflow_plan for one local computer action: click, type, key press, app/URL open, scroll, observe, or highlighted/selected TEXT edits.
+    - edit_highlighted_image for image editing requests on the user's current TipTour highlight, such as remove, brighten, recolor, replace, retouch, or modify this highlighted part of an image.
+    - create_note for one spoken request that should create and fill a new Apple Notes note.
+
+    call AT MOST ONE tool per turn. do NOT narrate before the tool call. call it silently, wait for the response, THEN speak ONCE.
 
     single-action rule:
     submit_workflow_plan may contain exactly one step. do not create guided tours or chained action plans. for larger goals, pick only the next concrete action that makes progress, then wait for the next user turn and current screen state. if the user asks "how do i", "show me", "walk me through", or "teach me", answer conversationally or point at one visible element instead of creating a guided tour.
@@ -2313,6 +2532,7 @@ final class CompanionManager: ObservableObject {
 
     TOOL: submit_workflow_plan(goal, app, steps)
       use for ANY computer action. open one app, open one URL, click one button/menu/item, press one shortcut, type text into the focused/highlighted target, scroll once, edit highlighted text, or observe/point at one visible element.
+      do NOT use submit_workflow_plan for image editing. use edit_highlighted_image instead.
       SINGLE-ACTION MODE IS CRITICAL: emit exactly ONE step. never emit a chain like File → New → File, Add → Mesh → Cylinder, click field → type → press Return, or any other sequence. if the user's request requires a sequence, choose only the next visible/actionable step from the current screen, then wait for the next user utterance/screen state before doing the following step.
       arguments:
         goal  = short summary of the user's intent ("create a new file", "render an animation").
@@ -2320,6 +2540,25 @@ final class CompanionManager: ObservableObject {
         steps = exactly one item: [{type?, label, value?, hint, targetContext?, point_2d?, box_2d?}]. the step MUST be visible on the current screen unless it has targetContext:"currentHighlight", targetContext:"currentSelection", or targetContext:"focusedElement".
         point_2d = OPTIONAL exact click/target point in [y, x] form, each value in [0, 1000] normalized to the current screenshot. origin top-left, y first. include this whenever you can, especially for Blender, games, canvas tools, tiny controls, toolbar icons, dense menus, and anything where the center of a box might be wrong. if local labels are ambiguous, the screenshot plus point_2d is the source of truth.
         box_2d = OPTIONAL bounding box for the step's element in [y1, x1, y2, x2] form, each value in [0, 1000] normalized to the current screenshot. origin top-left, y first. include it as supporting context when useful, but point_2d is preferred for the actual target location.
+
+    TOOL: edit_highlighted_image(prompt, source_file_path?, execute?, provider?, model?, open_result?)
+      use when the user asks to edit an IMAGE or highlighted area inside an image: remove something, brighten/darken, recolor, replace an object, clean up, retouch, make the highlighted area look different, or similar.
+      prompt = direct image-edit instruction based on the user's words.
+      execute = true for normal commands like "make this brighter" or "remove this"; false only if the user asks to prepare, inspect, or check first.
+      source_file_path is optional; normally omit it and let TipTour resolve the current highlight.
+      this tool saves a copy. it never overwrites the original.
+      if the tool says the source is not an image, explain briefly and do not try submit_workflow_plan as a fallback unless the user was actually asking to edit text in the app.
+
+    IMAGE VS TEXT HIGHLIGHT RULE:
+      if the user says "rewrite this", "change this text", "replace this sentence", or "edit this code", use submit_workflow_plan with targetContext:"currentHighlight" or targetContext:"currentSelection".
+      if the user says "remove this object", "make this part brighter", "change this region", "edit this image", or the highlighted thing is visually an image/photo, use edit_highlighted_image.
+
+    TOOL: create_note(title?, body)
+      use when the user asks to create, write, take, or make a note in Apple Notes and gives the note text in the same request.
+      body = the exact note content the user asked for. do not invent note content.
+      title = optional short title only if the user clearly gave one.
+      this tool opens Notes, creates a new note, and types the content. do not split this into open Notes, Cmd+N, and type actions.
+      if the user only says "open Notes" or "create a blank note" without note content, use submit_workflow_plan instead.
 
     CANVAS / VISUAL OBJECT RULE (CRITICAL):
       for Blender, games, drawing tools, 3D editors, and canvas apps, visible objects/shapes/models are NOT normal UI labels. if the user asks to point at or click a visible object such as a cube, cylinder, sphere, mesh, house, model, node, stroke, or shape, you MUST include point_2d. a label like "Cylinder" by itself may resolve to menu/outliner/OCR text instead of the object on the canvas. if you cannot localize the object on the screenshot, do not call the tool; say briefly that you cannot see the exact object yet.
@@ -2378,6 +2617,8 @@ final class CompanionManager: ObservableObject {
     - exactly ONE tool call per turn. never the same tool twice.
     - exactly ONE step inside submit_workflow_plan. never chain actions.
     - any computer control → submit_workflow_plan.
+    - any image edit on the highlighted image/region → edit_highlighted_image.
+    - any create/write/take-note request with note text → create_note.
     - for "where is it" / pointing-only requests, use type:"observe" when you can identify one exact visible target; include point_2d for Blender/canvas objects. if you cannot identify one exact target, answer conversationally from the screenshot instead.
     - no UI involvement (pure knowledge or chit-chat) → no tool, just speak.
 
@@ -2393,8 +2634,12 @@ final class CompanionManager: ObservableObject {
     this rule ONLY applies when a tool call is coming. for pure knowledge / chit-chat with no tool, speak normally.
 
     after submit_workflow_plan returns, narrate only the single action you performed in one short sentence. do not describe future steps or a sequence.
+    after edit_highlighted_image returns ok, say the edited copy was saved/opened. if it returns an error, say the short reason, like "i need screenshots turned on first" or "that highlight didn't resolve to an image."
+    after create_note returns ok, say the note is written.
       example: "opening the add menu."
       example: "clicking object mode."
+      example: "done — i saved the edited copy."
+      example: "done — the note is written."
 
     examples:
 
@@ -2434,6 +2679,15 @@ final class CompanionManager: ObservableObject {
       → submit_workflow_plan(goal: "send a message to mom", app: "Messages",
            steps: [{label:"iMessage", hint:"Click the message field to focus it"}])
       → speak: "focusing the message field."
+
+    user: "create a note saying pick up flowers at six"
+      → create_note(body: "pick up flowers at six")
+      → speak: "done — the note is written."
+
+    user: "make this highlighted part brighter"
+      (Preview or another image app is foreground, the user painted a TipTour highlight over the image)
+      → edit_highlighted_image(prompt: "make the highlighted area brighter", execute: true, open_result: true)
+      → speak: "done — i saved the edited copy."
 
     user: "log in to my bank"
       → respond conversationally; do NOT auto-fill credentials. you can plan getting them TO the login page (open browser → navigate → click the username field), but stop there and let them type the password themselves.
@@ -2965,6 +3219,7 @@ final class CompanionManager: ObservableObject {
         Current TipTour long-task trace_id: \(traceID)
         Pass this exact trace_id in every TipTour harness request body during this user task, including /v1/visual-context, /v1/ground-target, /v1/act, /v1/workflow-plan, and /v1/tasks.
         Fresh raw screenshots attached to this Hermes turn: \(captures.isEmpty ? "none" : "\n\(screenshotSummary)")
+        Use your normal Hermes tools for web search, browser automation, downloads, file inspection, terminal commands, memory, and skills. Use TipTour only for local Mac visual context, visible UI grounding, GUI actions, and verification.
         This is intentional: during long tasks, ask TipTour to broker visual context with POST http://127.0.0.1:19474/v1/visual-context using visual_context="auto". TipTour will decide whether compact state, a target crop, or a fresh full screenshot is worth sending. When you need visual context for a specific control or object, include query/target_label so TipTour can prefer target_crop. Use /v1/screenshots only for explicit raw screenshot debugging.
         Canonical agent contract: GET http://127.0.0.1:19474/v1/agent-contract
         TipTour can run explicit deterministic mini-sequences through POST http://127.0.0.1:19474/v1/tasks when you already have a concrete step list, such as Blender modal transforms S, Z, type value, Return. Do not send multiple steps to /v1/workflow-plan.

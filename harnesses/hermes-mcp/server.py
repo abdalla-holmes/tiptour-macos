@@ -16,7 +16,11 @@ TIPTOUR_BASE_URL = "http://127.0.0.1:19474"
 mcp = FastMCP("tiptour")
 
 
-def _request_json(path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+def _request_json(
+    path: str,
+    payload: dict[str, Any] | None = None,
+    timeout_seconds: int = 10,
+) -> dict[str, Any]:
     url = f"{TIPTOUR_BASE_URL}{path}"
     data = None
     headers = {"Accept": "application/json"}
@@ -28,7 +32,7 @@ def _request_json(path: str, payload: dict[str, Any] | None = None) -> dict[str,
     request = urllib.request.Request(url, data=data, headers=headers)
 
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             response_body = response.read().decode("utf-8")
     except urllib.error.URLError as error:
         return {
@@ -68,6 +72,62 @@ def tiptour_targets() -> dict[str, Any]:
 def tiptour_action_history() -> dict[str, Any]:
     """Return recent TipTour grounded-action attempts and validation outcomes."""
     return _request_json("/v1/action-history")
+
+
+@mcp.tool()
+def tiptour_resolve_highlight_source(
+    source_file_path: str | None = None,
+    trace_id: str | None = None,
+) -> dict[str, Any]:
+    """Resolve the user's current TipTour highlight into a file, URL, text, or visual source.
+
+    Call this when the user says "this image", "this file", "the highlighted
+    area", or similar. TipTour returns the resolved source plus suggested
+    tools such as image_edit, text_edit, selected_text_edit, open_source, or
+    visual_context.
+    """
+    return _request_json(
+        "/v1/resolve-highlight-source",
+        {
+            "source_file_path": source_file_path,
+            "trace_id": trace_id,
+        },
+    )
+
+
+@mcp.tool()
+def tiptour_image_edit(
+    prompt: str,
+    source_file_path: str | None = None,
+    execute: bool = False,
+    provider: str = "gemini",
+    model: str = "gemini-2.5-flash-image",
+    output_mode: str = "copy",
+    open_result: bool = True,
+    trace_id: str | None = None,
+) -> dict[str, Any]:
+    """Prepare or execute a file-aware edit for the highlighted image.
+
+    Use execute=False first to resolve the source and create local artifacts.
+    Use execute=True only when the source is an image, TipTour screenshots are
+    enabled, and the user wants the configured image model called. TipTour
+    saves a copy of the result and never overwrites the original image.
+    """
+    return _request_json(
+        "/v1/image-edit",
+        {
+            "prompt": prompt,
+            "source": "current_highlight",
+            "source_file_path": source_file_path,
+            "execute": execute,
+            "provider": provider,
+            "model": model,
+            "output_mode": output_mode,
+            "open_result": open_result,
+            "trace_id": trace_id,
+        },
+        timeout_seconds=180 if execute else 30,
+    )
 
 
 @mcp.tool()

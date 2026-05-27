@@ -9,6 +9,8 @@ Blender is mostly a canvas app, so native macOS accessibility often cannot see i
 
 Blender viewport objects are different from Blender UI labels. A visible mesh/object/shape such as a cube, cylinder, cone, roof, or house body usually has no reliable OCR/AX label on the canvas. For pointing at or clicking a viewport object, use fresh screenshot visual coordinates (`point_2d` preferred, `box_2d` acceptable) instead of a bare label like `Cylinder`, because bare labels can match the outliner, menus, or property text.
 
+If the user asks for a realistic, detailed, nice, downloaded, imported, or marketplace-quality model, do not default to the primitive house recipe. Treat it as an asset acquisition task for the outer agent: find a free/licensed asset, download it, validate the file, import it into Blender, then use TipTour visual context to verify the result.
+
 For one-action-at-a-time control:
 
 - Add objects through the visible `Add` menu, then `Mesh`, then the object type.
@@ -21,6 +23,25 @@ For one-action-at-a-time control:
 - When selecting from an open Blender menu, prefer the menu popup region over duplicate labels in the right outliner or properties sidebar.
 - When pointing at or clicking a 3D viewport object, do not rely on local target labels alone. Include visual coordinates from the screenshot, or ask TipTour for visual context first.
 - For deleting objects in Blender, use `A` to select all when needed, `X` to delete selected objects, then confirm with `Return`. Do not use a fuzzy OCR click to confirm deletion.
+
+## Imported Model Workflow
+
+Use this path when the task asks to get or load an existing model from the web.
+
+1. Use the outer agent's web/search/extract/browser tools to find a free or clearly licensed asset. Prefer direct asset pages over search-result snippets.
+2. Prefer `.glb` or `.gltf` for Blender import. `.obj`, `.fbx`, and `.blend` are also acceptable. Do not download installers, archives with executables, or paid/login-gated assets without asking the user.
+3. Download to a clear local task folder and keep the absolute path. Inspect the file size and extension before importing.
+4. Prefer direct Blender import when possible because it is faster and less brittle than menu clicking:
+   - `.glb` / `.gltf`: use Blender Python `bpy.ops.import_scene.gltf(filepath="/absolute/path/model.glb")`.
+   - `.fbx`: use `bpy.ops.import_scene.fbx(filepath="/absolute/path/model.fbx")`.
+   - `.obj`: use Blender's OBJ import operator for the installed Blender version.
+   - `.blend`: use `bpy.ops.wm.open_mainfile(filepath="/absolute/path/file.blend")` if replacing the scene is intended; use Append when the user wants to merge assets into the current scene.
+5. If the user explicitly wants to see the UI, or direct scripting is unavailable, drive Blender's UI through TipTour one action at a time:
+   - Click `File`.
+   - Choose `Import` then `glTF 2.0`, `Wavefront (.obj)`, or `FBX`, or choose `Open` / `Append` for `.blend`.
+   - In the macOS file dialog, use the absolute path. Prefer paste/type path and press `Return`/`Open` over visually clicking folders.
+   - Wait for TipTour after every action, refresh/ground visible menu targets after each menu opens, and verify after import.
+6. After import, call TipTour `/v1/visual-context` with `reason:"post_action"` and the same `trace_id`. Do not claim success until the model is visible or the import produced a clear success signal.
 
 ## Reliable House Recipe
 
@@ -125,6 +146,9 @@ For house tasks, prefer progress over perfection: create a body, a roof, a door,
     "When choosing objects from Add > Mesh, ask TipTour for visible targets and choose the open menu item, not duplicate labels in the outliner.",
     "For pointing at or clicking a 3D viewport object such as a cube, cylinder, cone, roof, or house body, use screenshot visual coordinates: include point_2d when submitting a workflow step. Do not submit only a bare label like Cylinder because local OCR may match outliner/menu/property text instead of the object.",
     "If you need visual context for a Blender viewport object, call /v1/visual-context with visual_context=\"auto\" and query or target_label set to the object name before deciding the next action.",
+    "For realistic, detailed, nice, downloaded, imported, or marketplace-quality model requests, use the outer agent's web/file/terminal tools to acquire and import a real asset. TipTour should only ground/click local UI and verify the Blender viewport.",
+    "For downloaded .glb/.gltf/.obj/.fbx/.blend assets, prefer reliable Blender Python or terminal import when available. Use File > Import/Open/Append through TipTour only when visible UI interaction is requested or scripting is unavailable.",
+    "When using Blender's file dialog, provide an absolute local file path rather than visually walking folders.",
     "For a simple house: clear the scene, add a Cube for the body, scale it, add a Cone or Cube roof, move it up, then add small Cube door/window details. Wait for TipTour after every single action."
   ]
 }

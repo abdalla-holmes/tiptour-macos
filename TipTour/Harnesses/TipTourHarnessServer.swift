@@ -295,11 +295,13 @@ final class TipTourHarnessServer {
                     "tiptour.agent_contract",
                     "tiptour.observe",
                     "tiptour.visual_context",
+                    "tiptour.resolve_highlight_source",
                     "tiptour.screenshots",
                     "tiptour.skills",
                     "tiptour.active_skill",
                     "tiptour.targets",
                     "tiptour.ground_target",
+                    "tiptour.image_edit",
                     "tiptour.act",
                     "tiptour.plan_next_action",
                     "tiptour.action_history",
@@ -339,6 +341,12 @@ final class TipTourHarnessServer {
         case ("POST", "/v1/visual-context"), ("POST", "/v1/visual_context"), ("POST", "/v1/observation-snapshot"):
             activityReporter("Hermes asking TipTour for visual context")
             response = await handleVisualContextRequest(body: request.body)
+        case ("GET", "/v1/resolve-highlight-source"), ("GET", "/v1/resolve_highlight_source"):
+            activityReporter("Hermes resolving the highlighted source")
+            response = encodableResponse(tipTourEngine.resolveHighlightSource(TipTourHighlightSourceRequest()))
+        case ("POST", "/v1/resolve-highlight-source"), ("POST", "/v1/resolve_highlight_source"):
+            activityReporter("Hermes resolving the highlighted source")
+            response = await handleResolveHighlightSourceRequest(body: request.body)
         case ("GET", "/v1/screenshots"), ("GET", "/v1/screenshot"):
             activityReporter("Hermes reading screenshots")
             let screenshots = await tipTourEngine.screenshots()
@@ -355,6 +363,9 @@ final class TipTourHarnessServer {
         case ("POST", "/v1/ground-target"), ("POST", "/v1/ground_target"):
             activityReporter("Hermes grounding a visible target")
             response = await handleGroundTargetRequest(body: request.body)
+        case ("POST", "/v1/image-edit"), ("POST", "/v1/image_edit"):
+            activityReporter("Hermes preparing an image edit")
+            response = await handleImageEditRequest(body: request.body)
         case ("GET", "/v1/action-history"), ("GET", "/v1/action_history"):
             activityReporter("Hermes checking recent actions")
             response = encodableResponse(tipTourEngine.actionHistory())
@@ -448,6 +459,32 @@ final class TipTourHarnessServer {
         }
     }
 
+    private func handleResolveHighlightSourceRequest(body: Data) async -> HarnessHTTPResponse {
+        do {
+            let request = body.isEmpty
+                ? TipTourHighlightSourceRequest()
+                : try JSONDecoder().decode(TipTourHighlightSourceRequest.self, from: body)
+            return encodableResponse(tipTourEngine.resolveHighlightSource(request))
+        } catch {
+            PipelineLogStore.shared.record(
+                category: "harness",
+                name: "resolve_highlight_source_decode",
+                status: "failed",
+                message: error.localizedDescription,
+                metadata: ["body_bytes": String(body.count)]
+            )
+            return jsonResponse(
+                [
+                    "ok": false,
+                    "reason": "invalid_request",
+                    "message": error.localizedDescription
+                ],
+                statusCode: 400,
+                statusText: "Bad Request"
+            )
+        }
+    }
+
     private func handleGroundTargetRequest(body: Data) async -> HarnessHTTPResponse {
         do {
             let request = try JSONDecoder().decode(HarnessGroundTargetRequest.self, from: body)
@@ -486,6 +523,49 @@ final class TipTourHarnessServer {
             PipelineLogStore.shared.record(
                 category: "harness",
                 name: "ground_target_decode",
+                status: "failed",
+                message: error.localizedDescription,
+                metadata: ["body_bytes": String(body.count)]
+            )
+            return jsonResponse(
+                [
+                    "ok": false,
+                    "reason": "invalid_request",
+                    "message": error.localizedDescription
+                ],
+                statusCode: 400,
+                statusText: "Bad Request"
+            )
+        }
+    }
+
+    private func handleImageEditRequest(body: Data) async -> HarnessHTTPResponse {
+        do {
+            let request = try JSONDecoder().decode(TipTourImageEditRequest.self, from: body)
+            guard request.normalizedPrompt != nil else {
+                PipelineLogStore.shared.record(
+                    category: "harness",
+                    name: "image_edit_decode",
+                    status: "rejected",
+                    message: "Image edit request did not include prompt, instruction, or goal.",
+                    metadata: ["body_bytes": String(body.count)]
+                )
+                return jsonResponse(
+                    [
+                        "ok": false,
+                        "reason": "missing_prompt",
+                        "message": "POST /v1/image-edit requires prompt, instruction, or goal."
+                    ],
+                    statusCode: 400,
+                    statusText: "Bad Request"
+                )
+            }
+            let result = await tipTourEngine.imageEdit(request)
+            return encodableResponse(result)
+        } catch {
+            PipelineLogStore.shared.record(
+                category: "harness",
+                name: "image_edit_decode",
                 status: "failed",
                 message: error.localizedDescription,
                 metadata: ["body_bytes": String(body.count)]

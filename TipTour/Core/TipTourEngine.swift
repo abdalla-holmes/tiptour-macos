@@ -330,6 +330,9 @@ final class TipTourEngine {
     private let isCuaActionDriverEnabledProvider: () -> Bool
     private let isHermesOrchestratorEnabledProvider: () -> Bool
     private let detectionElementCountProvider: () -> Int
+    private let currentFocusHighlightContextProvider: () -> FocusHighlightContext?
+    private let currentTargetApplicationProvider: () -> NSRunningApplication?
+    private let latestScreenCaptureProvider: () -> CompanionScreenCapture?
     private let refreshLocalPerception: (String) async -> Void
     private let normalizeWorkflowSteps: ([WorkflowStep], String) -> [WorkflowStep]
     private let startWorkflowPlan: (WorkflowPlan) -> Void
@@ -342,6 +345,12 @@ final class TipTourEngine {
         engine: self,
         activityReporter: activityReporter
     )
+    private lazy var imageEditService = TipTourImageEditService(
+        currentFocusHighlightContextProvider: currentFocusHighlightContextProvider,
+        currentTargetApplicationProvider: currentTargetApplicationProvider,
+        latestScreenCaptureProvider: latestScreenCaptureProvider,
+        isScreenshotStreamingEnabledProvider: isScreenshotStreamingEnabledProvider
+    )
 
     init(
         isAutopilotEnabledProvider: @escaping () -> Bool,
@@ -350,6 +359,9 @@ final class TipTourEngine {
         isCuaActionDriverEnabledProvider: @escaping () -> Bool,
         isHermesOrchestratorEnabledProvider: @escaping () -> Bool,
         detectionElementCountProvider: @escaping () -> Int,
+        currentFocusHighlightContextProvider: @escaping () -> FocusHighlightContext? = { nil },
+        currentTargetApplicationProvider: @escaping () -> NSRunningApplication? = { nil },
+        latestScreenCaptureProvider: @escaping () -> CompanionScreenCapture? = { nil },
         refreshLocalPerception: @escaping (String) async -> Void,
         normalizeWorkflowSteps: @escaping ([WorkflowStep], String) -> [WorkflowStep],
         startWorkflowPlan: @escaping (WorkflowPlan) -> Void,
@@ -361,6 +373,9 @@ final class TipTourEngine {
         self.isCuaActionDriverEnabledProvider = isCuaActionDriverEnabledProvider
         self.isHermesOrchestratorEnabledProvider = isHermesOrchestratorEnabledProvider
         self.detectionElementCountProvider = detectionElementCountProvider
+        self.currentFocusHighlightContextProvider = currentFocusHighlightContextProvider
+        self.currentTargetApplicationProvider = currentTargetApplicationProvider
+        self.latestScreenCaptureProvider = latestScreenCaptureProvider
         self.refreshLocalPerception = refreshLocalPerception
         self.normalizeWorkflowSteps = normalizeWorkflowSteps
         self.startWorkflowPlan = startWorkflowPlan
@@ -391,6 +406,52 @@ final class TipTourEngine {
             isHermesOrchestratorEnabled: isHermesOrchestratorEnabledProvider(),
             detectionElementCount: detectionElementCountProvider(),
             externalHarnessVisualContext: "External harnesses should call /v1/visual-context with visual_context=auto so TipTour can decide whether compact state is enough or a screenshot is worth sending. Use /v1/screenshots only for explicit raw screenshot debugging, POST /v1/ground-target for one compact grounded visible target, and keep GET /v1/targets for debug or full-graph inspection only."
+        )
+    }
+
+    func imageEdit(_ request: TipTourImageEditRequest) async -> TipTourImageEditResponse {
+        let result = await imageEditService.prepareOrExecute(request)
+        recordEngineEvent(
+            name: "image_edit",
+            status: result.ok ? "ok" : "failed",
+            message: result.message,
+            metadata: [
+                TipTourActionTrace.metadataKey: result.traceID,
+                "source_kind": result.source.kind,
+                "source_path": result.source.filePath ?? "none",
+                "source_url": result.source.sourceURL ?? "none",
+                "executed": String(result.execution?.attempted ?? false),
+                "execution_ok": String(result.execution?.ok ?? false),
+                "output_path": result.execution?.outputPath ?? "none"
+            ]
+        )
+        return result
+    }
+
+    func resolveHighlightSource(_ request: TipTourHighlightSourceRequest) -> TipTourHighlightSourceResponse {
+        let traceID = request.normalizedTraceID ?? TipTourActionTrace.makeID(source: "source")
+        let source = TipTourHighlightSourceResolver.resolve(
+            explicitFilePath: request.normalizedSourceFilePath,
+            highlightContext: currentFocusHighlightContextProvider(),
+            fallbackApplication: currentTargetApplicationProvider()
+        )
+        recordEngineEvent(
+            name: "resolve_highlight_source",
+            status: source.ok ? "ok" : "failed",
+            message: source.message,
+            metadata: [
+                TipTourActionTrace.metadataKey: traceID,
+                "source_kind": source.kind,
+                "content_category": source.contentCategory,
+                "file_path": source.filePath ?? "none",
+                "source_url": source.sourceURL ?? "none",
+                "tool_count": String(source.tools.count)
+            ]
+        )
+        return TipTourHighlightSourceResponse(
+            ok: source.ok,
+            traceID: traceID,
+            source: source
         )
     }
 
